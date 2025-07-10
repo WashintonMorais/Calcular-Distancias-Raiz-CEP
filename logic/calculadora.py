@@ -118,47 +118,54 @@ def _calcular_por_varredura_detalhada(lat_partida, lon_partida, raiz_inicial, ra
     return resultados_finais
 
 def calcular_distancias_stream(cep_partida_input, raiz_inicial_input, raiz_final_input, tipo_consulta):
-    # 1. VALIDAÇÃO DE ENTRADA REFORÇADA
+    # --- ETAPA DE VALIDAÇÃO 100% COMPLETA ---
     cep_partida = cep_partida_input.strip()
-    raiz_inicial = raiz_inicial_input.strip()[:5]
-    raiz_final = raiz_final_input.strip()[:5]
+    raiz_inicial = raiz_inicial_input.strip()
+    raiz_final = raiz_final_input.strip()
 
+    # VALIDAÇÃO DE COMPRIMENTO (A CORREÇÃO)
     if len(cep_partida) != 8:
         yield f"data: {json.dumps({'tipo': 'erro', 'msg': f'Erro: O CEP de Partida ({cep_partida}) deve ter exatamente 8 dígitos.'})}\n\n"
         return
+    if len(raiz_inicial) != 5:
+        yield f"data: {json.dumps({'tipo': 'erro', 'msg': f'Erro: A Raiz Inicial ({raiz_inicial}) deve ter exatamente 5 dígitos.'})}\n\n"
+        return
+    if len(raiz_final) != 5:
+        yield f"data: {json.dumps({'tipo': 'erro', 'msg': f'Erro: A Raiz Final ({raiz_final}) deve ter exatamente 5 dígitos.'})}\n\n"
+        return
+
+    # VALIDAÇÃO DE TIPO (GARANTE QUE SÃO NÚMEROS)
     if not (raiz_inicial.isdigit() and raiz_final.isdigit() and cep_partida.isdigit()):
         yield f"data: {json.dumps({'tipo': 'erro', 'msg': 'Erro: Todos os campos devem conter apenas números.'})}\n\n"
         return
-
-    # 2. BUSCA DAS COORDENADAS DE PARTIDA
+    
+    # BUSCA DAS COORDENADAS DE PARTIDA
     lat_partida, lon_partida, _ = get_coord_from_cep(cep_partida)
     if not lat_partida or not lon_partida:
         yield f"data: {json.dumps({'tipo': 'erro', 'msg': f'Erro: CEP de partida {cep_partida} inválido ou não encontrado.'})}\n\n"
         return
 
-    # 3. EXECUÇÃO E CAPTURA DE RESULTADOS
+    # O restante do código não precisa de alteração
     resultados_finais = []
-    # Usamos um 'try' para capturar o valor de retorno do gerador
     try:
         if tipo_consulta == 'rapida':
             gen = _calcular_por_centroide_rapido(lat_partida, lon_partida, raiz_inicial, raiz_final)
         else:
             gen = _calcular_por_varredura_detalhada(lat_partida, lon_partida, raiz_inicial, raiz_final)
         
-        # Iteramos sobre o gerador, passando cada 'yield' para o cliente
         while True:
             yield next(gen)
     except StopIteration as e:
-        # Quando o gerador termina, capturamos seu valor de retorno
         resultados_finais = e.value
     
-    # 4. SALVAMENTO DO CSV E MENSAGEM FINAL
+    # SALVAMENTO DO CSV E MENSAGEM FINAL
     os.makedirs("resultados", exist_ok=True)
     csv_header = ["Raiz de CEP", "Bairro/Descrição", "Distância (km)", "Tempo Estimado (min)", "CEPs/Amostras"]
     with open("resultados/resultado.csv", "w", newline='', encoding="utf-8") as f:
         writer = csv.writer(f)
         writer.writerow(csv_header)
-        for r in resultados_finais:
-            writer.writerow([r.get('raiz'), r.get('bairro'), r.get('distancia'), r.get('tempo'), r.get('ceps_consultados')])
+        if resultados_finais:
+            for r in resultados_finais:
+                writer.writerow([r.get('raiz'), r.get('bairro'), r.get('distancia'), r.get('tempo'), r.get('ceps_consultados')])
 
     yield f"data: {json.dumps({'tipo': 'fim', 'resultados': resultados_finais, 'download_link': '/baixar_csv'})}\n\n"
