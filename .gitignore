@@ -1,0 +1,11 @@
+# Arquivos de cache do Python
+__pycache__/
+*.pyc
+
+# Pasta de resultados gerados
+/resultados/
+
+# Arquivos de ambiente (se você usar)
+.env
+venv/
+.venv/
