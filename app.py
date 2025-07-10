@@ -4,8 +4,10 @@ from flask import Flask, render_template, request, send_file, Response
 from logic.calculadora import calcular_distancias_stream
 import os
 import json
+import logging
 
 app = Flask(__name__)
+logging.basicConfig(level=logging.INFO)
 
 @app.route('/')
 def index():
@@ -13,21 +15,20 @@ def index():
 
 @app.route('/stream-calculo')
 def stream_calculo():
-    cep_partida = request.args.get('cep_partida')
-    raiz_inicial = request.args.get('raiz_inicial')
-    raiz_final = request.args.get('raiz_final')
+    cep_partida = request.args.get('cep_partida', '')
+    raiz_inicial = request.args.get('raiz_inicial', '')
+    raiz_final = request.args.get('raiz_final', '')
+    # Pega o novo parâmetro da requisição, com 'detalhada' como padrão
+    tipo_consulta = request.args.get('tipo_consulta', 'detalhada')
     
     def generate():
         try:
-            # O 'yield from' passa todos os yields da função de cálculo diretamente para a resposta
-            yield from calcular_distancias_stream(cep_partida, raiz_inicial, raiz_final)
+            yield from calcular_distancias_stream(cep_partida, raiz_inicial, raiz_final, tipo_consulta)
         except Exception as e:
-            # Se qualquer erro inesperado acontecer, envie uma mensagem de erro clara
-            print(f"ERRO INESPERADO NO STREAM: {e}") # Log para o terminal do Flask
-            error_message = {'tipo': 'erro', 'msg': f'Ocorreu um erro crítico no servidor: {e}'}
-            yield f"data: {json.dumps(error_message)}\n\n"
+            app.logger.error(f"ERRO CRÍTICO NO STREAM: {e}", exc_info=True)
+            yield f"data: {json.dumps({'tipo': 'erro', 'msg': 'Ocorreu um erro inesperado no servidor.'})}\n\n"
 
-    return Response(generate(), mimetype='text/event-stream') # Chame a nova função 'generate'
+    return Response(generate(), mimetype='text/event-stream')
 
 @app.route('/baixar_csv')
 def baixar_csv():
