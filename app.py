@@ -1,5 +1,3 @@
-# app.py
-
 from flask import Flask, render_template, request, send_file, Response
 from logic.calculadora import calcular_distancias_stream
 import os
@@ -18,7 +16,6 @@ def stream_calculo():
     cep_partida = request.args.get('cep_partida', '')
     raiz_inicial = request.args.get('raiz_inicial', '')
     raiz_final = request.args.get('raiz_final', '')
-    # Pega o novo parâmetro da requisição, com 'detalhada' como padrão
     tipo_consulta = request.args.get('tipo_consulta', 'detalhada')
     
     def generate():
@@ -26,7 +23,8 @@ def stream_calculo():
             yield from calcular_distancias_stream(cep_partida, raiz_inicial, raiz_final, tipo_consulta)
         except Exception as e:
             app.logger.error(f"ERRO CRÍTICO NO STREAM: {e}", exc_info=True)
-            yield f"data: {json.dumps({'tipo': 'erro', 'msg': 'Ocorreu um erro inesperado no servidor.'})}\n\n"
+            error_message = {'tipo': 'erro', 'msg': 'Ocorreu um erro inesperado no servidor.'}
+            yield f"data: {json.dumps(error_message)}\n\n"
 
     return Response(generate(), mimetype='text/event-stream')
 
@@ -37,4 +35,4 @@ def baixar_csv():
 
 if __name__ == '__main__':
     os.makedirs('resultados', exist_ok=True)
-    app.run(debug=True)
+    app.run(debug=True, host='0.0.0.0', port=5000)
