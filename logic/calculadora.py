@@ -6,6 +6,8 @@ import time
 import logging
 from math import radians, cos, sin, asin, sqrt, fsum
 from itertools import cycle
+from concurrent.futures import ThreadPoolExecutor
+import random
 
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
 
@@ -15,50 +17,34 @@ def haversine(lat1, lon1, lat2, lon2):
     a = sin(dlat/2)**2 + cos(radians(lat1)) * cos(radians(lat2)) * sin(dlon/2)**2
     c = 2 * asin(sqrt(a)); return R * c
 
-# --- LISTA DE APIS ATUALIZADA COM A NOMINATIM ---
 APIS = [
     "https://viacep.com.br/ws/{cep}/json/",
     "https://brasilapi.com.br/api/cep/v2/{cep}",
-    "https://nominatim.openstreetmap.org/search?postalcode={cep}&country=Brasil&format=json", # <- NOVA
+    "https://nominatim.openstreetmap.org/search?postalcode={cep}&country=Brasil&format=json",
     "https://opencep.com/v1/{cep}",
     "https://cep.awesomeapi.com.br/json/{cep}",
 ]
-api_cycle = cycle(APIS)
 
+# --- FUNÇÃO get_coord_from_cep REESCRITA PARA SER 100% THREAD-SAFE ---
 def get_coord_from_cep(cep):
-    # --- CABEÇALHO OBRIGATÓRIO PARA A NOMINATIM ---
-    headers = {
-        'User-Agent': 'CalculadoraDistancia/1.0 (Projeto Pessoal - washinton.morais@email.com)'
-    }
-    # (É uma boa prática usar um email de contato real no User-Agent)
+    headers = {'User-Agent': 'CalculadoraDistancia/1.0 (Projeto Pessoal)'}
+    
+    # Para garantir a rotação mesmo em paralelo, cada chamada "embaralha" sua própria lista de APIs
+    apis_embaralhadas = random.sample(APIS, len(APIS))
 
-    for _ in range(len(APIS)):
-        api_url = next(api_cycle)
-        
-        # Formata a URL (remove o hífen do CEP para a maioria das APIs)
-        formatted_cep = cep.replace('-', '')
-        url_final = api_url.format(cep=formatted_cep)
-        
+    for api_url_template in apis_embaralhadas:
+        url_final = api_url_template.format(cep=cep.replace('-', ''))
         try:
-            # Adiciona o cabeçalho 'headers' à requisição
             res = requests.get(url_final, headers=headers, timeout=10)
             res.raise_for_status()
             data = res.json()
-
-            # --- LÓGICA DE EXTRAÇÃO ATUALIZADA ---
+            
             lat, lon, bairro = 0, 0, 'N/A'
 
-            # Se a resposta for uma lista (caso da Nominatim)
             if isinstance(data, list) and data:
-                primeiro_resultado = data[0]
-                lat = float(primeiro_resultado.get('lat') or 0)
-                lon = float(primeiro_resultado.get('lon') or 0)
-                # Tenta pegar um nome de bairro/distrito do display_name
-                display_parts = primeiro_resultado.get('display_name', '').split(',')
-                if len(display_parts) > 2:
-                    bairro = display_parts[1].strip()
-
-            # Se for um dicionário (outras APIs)
+                r = data[0]
+                lat, lon = float(r.get('lat', 0)), float(r.get('lon', 0))
+                parts = r.get('display_name', '').split(','); bairro = parts[1].strip() if len(parts) > 2 else 'N/A'
             elif isinstance(data, dict):
                 if data.get('erro'): continue
                 lat = float(data.get('lat') or data.get('latitude') or 0)
@@ -67,15 +53,13 @@ def get_coord_from_cep(cep):
 
             if lat != 0 and lon != 0:
                 return lat, lon, bairro
-            
         except Exception as e:
-            logging.error(f"Falha ou erro na API {url_final}. Erro: {e}")
-            time.sleep(1) # Adiciona uma pausa de 1 segundo para respeitar limites de API
+            logging.error(f"Falha na API {url_final}. Tentando próxima. Erro: {e}")
+            time.sleep(0.5) # Pequena pausa para não sobrecarregar
             continue
             
     return None, None, None
 
-# --- LÓGICA 1: CONSULTA RÁPIDA (CENTRO DA RAIZ) - AGORA EM PARALELO ---
 def _calcular_por_centroide_rapido(lat_partida, lon_partida, raiz_inicial, raiz_final):
     resultados = []
     total_raizes = (int(raiz_final) - int(raiz_inicial) + 1)
@@ -87,12 +71,9 @@ def _calcular_por_centroide_rapido(lat_partida, lon_partida, raiz_inicial, raiz_
         
         yield f"data: {json.dumps({'tipo': 'log', 'msg': f'Buscando amostras para a raiz {raiz_str} em paralelo...', 'progresso': (raizes_processadas / total_raizes) * 100})}\n\n"
         
-        # Cria a lista de 10 CEPs para amostra
         ceps_para_amostra = [f"{raiz_str}{str(i).zfill(3)}" for i in range(0, 1000, 100)]
         
-        # Executa as 10 chamadas de API em threads paralelas
         with ThreadPoolExecutor(max_workers=10) as executor:
-            # O `map` aplica a função `get_coord_from_cep` a cada item da lista de CEPs
             for resultado in executor.map(get_coord_from_cep, ceps_para_amostra):
                 if resultado:
                     lat, lon, _ = resultado
@@ -113,9 +94,7 @@ def _calcular_por_centroide_rapido(lat_partida, lon_partida, raiz_inicial, raiz_
     
     return resultados
 
-# --- LÓGICA 2: CONSULTA DETALHADA (POR BAIRRO) - SEM ALTERAÇÃO ---
 def _calcular_por_varredura_detalhada(lat_partida, lon_partida, raiz_inicial, raiz_final):
-    # Esta função continua a mesma, pois suas chamadas já são mais distribuídas
     resultados_finais = []
     total_raizes = (int(raiz_final) - int(raiz_inicial) + 1)
     total_ceps_a_consultar = total_raizes * 300
@@ -155,26 +134,22 @@ def _calcular_por_varredura_detalhada(lat_partida, lon_partida, raiz_inicial, ra
     
     return resultados_finais
 
-# --- FUNÇÃO PRINCIPAL (ROTEADOR) ---
-# Esta função foi simplificada para ser mais robusta
 def calcular_distancias_stream(cep_partida_input, raiz_inicial_input, raiz_final_input, tipo_consulta):
     cep_partida = cep_partida_input.strip()
     raiz_inicial = raiz_inicial_input.strip()
     raiz_final = raiz_final_input.strip()
 
-    # Validações de entrada
     if len(cep_partida) != 8:
-        yield f"data: {json.dumps({'tipo': 'erro', 'msg': f'Erro: O CEP de Partida deve ter 8 dígitos.'})}\n\n"; return
+        yield f"data: {json.dumps({'tipo': 'erro', 'msg': f'Erro: O CEP de Partida ({cep_partida}) deve ter exatamente 8 dígitos.'})}\n\n"; return
     if len(raiz_inicial) != 5:
-        yield f"data: {json.dumps({'tipo': 'erro', 'msg': f'Erro: A Raiz Inicial deve ter 5 dígitos.'})}\n\n"; return
+        yield f"data: {json.dumps({'tipo': 'erro', 'msg': f'Erro: A Raiz Inicial ({raiz_inicial}) deve ter 5 dígitos.'})}\n\n"; return
     if len(raiz_final) != 5:
-        yield f"data: {json.dumps({'tipo': 'erro', 'msg': f'Erro: A Raiz Final deve ter 5 dígitos.'})}\n\n"; return
+        yield f"data: {json.dumps({'tipo': 'erro', 'msg': f'Erro: A Raiz Final ({raiz_final}) deve ter 5 dígitos.'})}\n\n"; return
     
     lat_partida, lon_partida, _ = get_coord_from_cep(cep_partida)
     if not lat_partida or not lon_partida:
         yield f"data: {json.dumps({'tipo': 'erro', 'msg': f'Erro: CEP de partida {cep_partida} inválido ou não encontrado.'})}\n\n"; return
 
-    # Execução e captura de resultados
     resultados_finais = []
     try:
         if tipo_consulta == 'rapida':
@@ -187,7 +162,6 @@ def calcular_distancias_stream(cep_partida_input, raiz_inicial_input, raiz_final
     except StopIteration as e:
         resultados_finais = e.value
     
-    # Finalização
     os.makedirs("resultados", exist_ok=True)
     with open("resultados/resultado.csv", "w", newline='', encoding="utf-8") as f:
         writer = csv.writer(f)

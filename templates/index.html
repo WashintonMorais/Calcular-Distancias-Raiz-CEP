@@ -62,8 +62,7 @@
 
         calculoForm.addEventListener('submit', function(event) {
             event.preventDefault();
-
-            // --- VALIDAÇÃO FRONTEND (NOVA LÓGICA COM ALERT) ---
+            
             const formData = new FormData(event.target);
             const cepPartida = formData.get('cep_partida');
             const raizInicial = formData.get('raiz_inicial');
@@ -71,24 +70,18 @@
             const numberRegex = /^\d+$/;
 
             if (!numberRegex.test(cepPartida) || !numberRegex.test(raizInicial) || !numberRegex.test(raizFinal)) {
-                alert('Erro: Todos os campos devem conter apenas números.');
-                return; // Para a execução aqui
+                alert('Erro: Todos os campos devem conter apenas números.'); return;
             }
             if (cepPartida.length !== 8) {
-                alert('Erro: O CEP de Partida deve ter exatamente 8 dígitos.');
-                return; // Para a execução aqui
+                alert('Erro: O CEP de Partida deve ter exatamente 8 dígitos.'); return;
             }
             if (raizInicial.length !== 5) {
-                alert('Erro: A Raiz Inicial deve ter exatamente 5 dígitos.');
-                return; // Para a execução aqui
+                alert('Erro: A Raiz Inicial deve ter exatamente 5 dígitos.'); return;
             }
             if (raizFinal.length !== 5) {
-                alert('Erro: A Raiz Final deve ter exatamente 5 dígitos.');
-                return; // Para a execução aqui
+                alert('Erro: A Raiz Final deve ter exatamente 5 dígitos.'); return;
             }
-            // --- FIM DA VALIDAÇÃO ---
 
-            // Se a validação passar, o código continua normalmente
             statusContainer.classList.remove('hidden');
             logElement.textContent = 'Iniciando conexão com o servidor...';
             resultadosBody.innerHTML = '<tr id="no-results-row"><td colspan="5" class="text-center p-8 text-gray-500">Aguardando resultados...</td></tr>';
