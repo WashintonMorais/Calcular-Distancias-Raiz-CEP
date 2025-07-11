@@ -6,8 +6,6 @@ import time
 import logging
 from math import radians, cos, sin, asin, sqrt, fsum
 from itertools import cycle
-# NOVO IMPORT para executar tarefas em paralelo
-from concurrent.futures import ThreadPoolExecutor
 
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
 
@@ -17,32 +15,65 @@ def haversine(lat1, lon1, lat2, lon2):
     a = sin(dlat/2)**2 + cos(radians(lat1)) * cos(radians(lat2)) * sin(dlon/2)**2
     c = 2 * asin(sqrt(a)); return R * c
 
+# --- LISTA DE APIS ATUALIZADA COM A NOMINATIM ---
 APIS = [
     "https://viacep.com.br/ws/{cep}/json/",
     "https://brasilapi.com.br/api/cep/v2/{cep}",
-    "https://cep.awesomeapi.com.br/json/{cep}",
+    "https://nominatim.openstreetmap.org/search?postalcode={cep}&country=Brasil&format=json", # <- NOVA
     "https://opencep.com/v1/{cep}",
+    "https://cep.awesomeapi.com.br/json/{cep}",
 ]
 api_cycle = cycle(APIS)
 
 def get_coord_from_cep(cep):
-    # Esta função agora será chamada em paralelo, então deve ser autossuficiente
-    api_url = next(api_cycle).format(cep=cep)
-    try:
-        res = requests.get(api_url, timeout=10)
-        res.raise_for_status()
-        data = res.json()
-        if data.get('erro'): return None
+    # --- CABEÇALHO OBRIGATÓRIO PARA A NOMINATIM ---
+    headers = {
+        'User-Agent': 'CalculadoraDistancia/1.0 (Projeto Pessoal - washinton.morais@email.com)'
+    }
+    # (É uma boa prática usar um email de contato real no User-Agent)
+
+    for _ in range(len(APIS)):
+        api_url = next(api_cycle)
         
-        lat = float(data.get('lat') or data.get('latitude') or 0)
-        lon = float(data.get('lng') or data.get('longitude') or 0)
+        # Formata a URL (remove o hífen do CEP para a maioria das APIs)
+        formatted_cep = cep.replace('-', '')
+        url_final = api_url.format(cep=formatted_cep)
         
-        if lat != 0 and lon != 0:
-            bairro = data.get('bairro') or data.get('district') or data.get('neighborhood', 'N/A')
-            return lat, lon, bairro
-    except Exception:
-        return None
-    return None
+        try:
+            # Adiciona o cabeçalho 'headers' à requisição
+            res = requests.get(url_final, headers=headers, timeout=10)
+            res.raise_for_status()
+            data = res.json()
+
+            # --- LÓGICA DE EXTRAÇÃO ATUALIZADA ---
+            lat, lon, bairro = 0, 0, 'N/A'
+
+            # Se a resposta for uma lista (caso da Nominatim)
+            if isinstance(data, list) and data:
+                primeiro_resultado = data[0]
+                lat = float(primeiro_resultado.get('lat') or 0)
+                lon = float(primeiro_resultado.get('lon') or 0)
+                # Tenta pegar um nome de bairro/distrito do display_name
+                display_parts = primeiro_resultado.get('display_name', '').split(',')
+                if len(display_parts) > 2:
+                    bairro = display_parts[1].strip()
+
+            # Se for um dicionário (outras APIs)
+            elif isinstance(data, dict):
+                if data.get('erro'): continue
+                lat = float(data.get('lat') or data.get('latitude') or 0)
+                lon = float(data.get('lng') or data.get('longitude') or 0)
+                bairro = data.get('bairro') or data.get('district') or data.get('neighborhood', 'N/A')
+
+            if lat != 0 and lon != 0:
+                return lat, lon, bairro
+            
+        except Exception as e:
+            logging.error(f"Falha ou erro na API {url_final}. Erro: {e}")
+            time.sleep(1) # Adiciona uma pausa de 1 segundo para respeitar limites de API
+            continue
+            
+    return None, None, None
 
 # --- LÓGICA 1: CONSULTA RÁPIDA (CENTRO DA RAIZ) - AGORA EM PARALELO ---
 def _calcular_por_centroide_rapido(lat_partida, lon_partida, raiz_inicial, raiz_final):
