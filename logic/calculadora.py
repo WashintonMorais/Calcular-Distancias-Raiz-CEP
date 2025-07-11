@@ -1,3 +1,5 @@
+# logic/calculadora.py
+
 import requests
 import json
 import csv
@@ -5,9 +7,9 @@ import os
 import time
 import logging
 from math import radians, cos, sin, asin, sqrt, fsum
+import random
 from itertools import cycle
 from concurrent.futures import ThreadPoolExecutor
-import random
 
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
 
@@ -25,11 +27,8 @@ APIS = [
     "https://cep.awesomeapi.com.br/json/{cep}",
 ]
 
-# --- FUNÇÃO get_coord_from_cep REESCRITA PARA SER 100% THREAD-SAFE ---
 def get_coord_from_cep(cep):
     headers = {'User-Agent': 'CalculadoraDistancia/1.0 (Projeto Pessoal)'}
-    
-    # Para garantir a rotação mesmo em paralelo, cada chamada "embaralha" sua própria lista de APIs
     apis_embaralhadas = random.sample(APIS, len(APIS))
 
     for api_url_template in apis_embaralhadas:
@@ -39,23 +38,27 @@ def get_coord_from_cep(cep):
             res.raise_for_status()
             data = res.json()
             
-            lat, lon, bairro = 0, 0, 'N/A'
+            lat, lon, bairro = None, None, 'N/A'
 
             if isinstance(data, list) and data:
                 r = data[0]
-                lat, lon = float(r.get('lat', 0)), float(r.get('lon', 0))
+                lat = r.get('lat')
+                lon = r.get('lon')
                 parts = r.get('display_name', '').split(','); bairro = parts[1].strip() if len(parts) > 2 else 'N/A'
             elif isinstance(data, dict):
                 if data.get('erro'): continue
-                lat = float(data.get('lat') or data.get('latitude') or 0)
-                lon = float(data.get('lng') or data.get('longitude') or 0)
+                lat = data.get('lat') or data.get('latitude')
+                lon = data.get('lng') or data.get('longitude')
                 bairro = data.get('bairro') or data.get('district') or data.get('neighborhood', 'N/A')
 
-            if lat != 0 and lon != 0:
-                return lat, lon, bairro
+            # --- VALIDAÇÃO MAIS RIGOROSA ---
+            # Só retorna se lat e lon forem encontrados e puderem ser convertidos para float
+            if lat is not None and lon is not None:
+                return float(lat), float(lon), bairro
+                
         except Exception as e:
-            logging.error(f"Falha na API {url_final}. Tentando próxima. Erro: {e}")
-            time.sleep(0.5) # Pequena pausa para não sobrecarregar
+            logging.error(f"Falha na API {url_final}. Erro: {e}")
+            time.sleep(0.5)
             continue
             
     return None, None, None
@@ -75,7 +78,9 @@ def _calcular_por_centroide_rapido(lat_partida, lon_partida, raiz_inicial, raiz_
         
         with ThreadPoolExecutor(max_workers=10) as executor:
             for resultado in executor.map(get_coord_from_cep, ceps_para_amostra):
-                if resultado:
+                # --- DUPLA CAMADA DE PROTEÇÃO ---
+                # Garante que o resultado e suas coordenadas não são nulos antes de usar
+                if resultado and resultado[0] is not None and resultado[1] is not None:
                     lat, lon, _ = resultado
                     coordenadas_encontradas.append((lat, lon))
         
@@ -94,6 +99,7 @@ def _calcular_por_centroide_rapido(lat_partida, lon_partida, raiz_inicial, raiz_
     
     return resultados
 
+# ... (O resto do arquivo, incluindo _calcular_por_varredura_detalhada e calcular_distancias_stream, continua o mesmo) ...
 def _calcular_por_varredura_detalhada(lat_partida, lon_partida, raiz_inicial, raiz_final):
     resultados_finais = []
     total_raizes = (int(raiz_final) - int(raiz_inicial) + 1)
