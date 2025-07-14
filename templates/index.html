@@ -13,7 +13,7 @@
             <h1 class="text-2xl font-bold mb-4 text-gray-800">Calcular Distâncias por Raiz de CEP</h1>
             <form id="calculo-form" class="space-y-6">
                 <div class="grid grid-cols-1 sm:grid-cols-3 gap-4">
-                    <input name="cep_partida" placeholder="CEP de Partida (8 dígitos)" required maxlength="8" class="border p-2 rounded w-full focus:ring-2 focus:ring-blue-500" />
+                    <input name="cep_partida" placeholder="CEP de Partida (só números)" required maxlength="8" class="border p-2 rounded w-full focus:ring-2 focus:ring-blue-500" />
                     <input name="raiz_inicial" placeholder="Raiz Inicial (5 dígitos)" required maxlength="5" class="border p-2 rounded w-full focus:ring-2 focus:ring-blue-500" />
                     <input name="raiz_final" placeholder="Raiz Final (5 dígitos)" required maxlength="5" class="border p-2 rounded w-full focus:ring-2 focus:ring-blue-500" />
                 </div>
@@ -57,11 +57,14 @@
         const progressBar = document.getElementById('progress-bar');
         const progressText = document.getElementById('progress-text');
         const downloadLink = document.getElementById('download-link');
+        let eventSource;
         
         function resetUI() { submitButton.disabled = false; buttonText.classList.remove('hidden'); buttonSpinner.classList.add('hidden'); }
 
         calculoForm.addEventListener('submit', function(event) {
             event.preventDefault();
+
+            if (eventSource) { eventSource.close(); }
             
             const formData = new FormData(event.target);
             const cepPartida = formData.get('cep_partida');
@@ -72,14 +75,8 @@
             if (!numberRegex.test(cepPartida) || !numberRegex.test(raizInicial) || !numberRegex.test(raizFinal)) {
                 alert('Erro: Todos os campos devem conter apenas números.'); return;
             }
-            if (cepPartida.length !== 8) {
-                alert('Erro: O CEP de Partida deve ter exatamente 8 dígitos.'); return;
-            }
-            if (raizInicial.length !== 5) {
-                alert('Erro: A Raiz Inicial deve ter exatamente 5 dígitos.'); return;
-            }
-            if (raizFinal.length !== 5) {
-                alert('Erro: A Raiz Final deve ter exatamente 5 dígitos.'); return;
+            if (parseInt(raizInicial) > parseInt(raizFinal)) {
+                alert('Erro: A Raiz Inicial não pode ser maior que a Raiz Final.'); return;
             }
 
             statusContainer.classList.remove('hidden');
@@ -90,37 +87,50 @@
             submitButton.disabled = true; buttonText.classList.add('hidden'); buttonSpinner.classList.remove('hidden');
 
             const params = new URLSearchParams(formData);
-            const eventSource = new EventSource(`/stream-calculo?${params.toString()}`);
+            eventSource = new EventSource(`/stream-calculo?${params.toString()}`);
             logElement.textContent += '\nConexão estabelecida. Aguardando dados...';
 
             eventSource.onmessage = function(e) {
                 const data = JSON.parse(e.data);
+                
+                if (data.progresso) {
+                    progressBar.style.width = data.progresso + '%';
+                    progressText.textContent = `${data.progresso}%`;
+                }
+
                 if (data.tipo === 'log') {
                     logElement.textContent += '\n' + data.msg;
                     logElement.scrollTop = logElement.scrollHeight;
-                    progressBar.style.width = data.progresso + '%';
-                    progressText.textContent = `${data.progresso}%`;
                 } 
                 else if (data.tipo === 'fim') {
                     const noResultsRow = document.getElementById('no-results-row');
                     if (noResultsRow) noResultsRow.remove();
+                    
                     logElement.textContent += '\n\n✅ Processo concluído!';
                     progressBar.style.width = '100%'; progressText.textContent = '100%';
-                    data.resultados.forEach(item => {
-                        const row = document.createElement('tr');
-                        row.className = item.tipo_linha === 'resumo_raiz' ? 'bg-blue-100 font-bold' : 'odd:bg-white even:bg-gray-50';
-                        row.innerHTML = `<td class="border-b p-3">${item.raiz}</td><td class="border-b p-3">${item.bairro}</td><td class="border-b p-3">${item.distancia}</td><td class="border-b p-3">${item.tempo}</td><td class="border-b p-3">${item.ceps_consultados}</td>`;
-                        resultadosBody.appendChild(row);
-                    });
-                    downloadLink.href = data.download_link;
-                    downloadLink.classList.remove('hidden');
+
+                    if (data.resultados && data.resultados.length > 0) {
+                        data.resultados.forEach(item => {
+                            const row = document.createElement('tr');
+                            row.className = item.tipo_linha === 'resumo_raiz' ? 'bg-blue-100 font-bold' : 'odd:bg-white even:bg-gray-50';
+                            row.innerHTML = `<td class="border-b p-3">${item.raiz}</td><td class="border-b p-3">${item.bairro}</td><td class="border-b p-3">${item.distancia}</td><td class="border-b p-3">${item.tempo}</td><td class="border-b p-3">${item.ceps_consultados}</td>`;
+                            resultadosBody.appendChild(row);
+                        });
+                        downloadLink.href = data.download_link;
+                        downloadLink.classList.remove('hidden');
+                    } else {
+                        resultadosBody.innerHTML = '<tr id="no-results-row"><td colspan="5" class="text-center p-8 text-gray-500">Nenhum resultado encontrado para os critérios informados.</td></tr>';
+                    }
+
                     resetUI(); eventSource.close();
                 }
                 else if (data.tipo === 'erro') {
                     logElement.textContent += `\n\n❌ ERRO: ${data.msg}`;
+                    alert(`ERRO: ${data.msg}`);
                     resetUI(); eventSource.close();
                 }
             };
+
             eventSource.onerror = function() {
                 logElement.textContent += '\n\n❌ Erro de conexão com o servidor. A conexão foi perdida.';
                 resetUI(); eventSource.close();

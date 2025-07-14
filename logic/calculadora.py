@@ -1,5 +1,3 @@
-# logic/calculadora.py
-
 import requests
 import json
 import csv
@@ -8,17 +6,12 @@ import time
 import logging
 from math import radians, cos, sin, asin, sqrt, fsum
 import random
-from itertools import cycle
-from concurrent.futures import ThreadPoolExecutor
+from concurrent.futures import ThreadPoolExecutor, as_completed
 
+# --- CONFIGURAÇÃO INICIAL ---
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
 
-def haversine(lat1, lon1, lat2, lon2):
-    R = 6371
-    dlat = radians(lat2 - lat1); dlon = radians(lon2 - lon1)
-    a = sin(dlat/2)**2 + cos(radians(lat1)) * cos(radians(lat2)) * sin(dlon/2)**2
-    c = 2 * asin(sqrt(a)); return R * c
-
+# Lista de APIs para consulta de CEP, garantindo redundância
 APIS = [
     "https://viacep.com.br/ws/{cep}/json/",
     "https://brasilapi.com.br/api/cep/v2/{cep}",
@@ -27,7 +20,22 @@ APIS = [
     "https://cep.awesomeapi.com.br/json/{cep}",
 ]
 
+# --- FUNÇÕES CORE ---
+
+def haversine(lat1, lon1, lat2, lon2):
+    """Calcula a distância em km entre duas coordenadas geográficas."""
+    R = 6371  # Raio da Terra em km
+    dlat = radians(lat2 - lat1)
+    dlon = radians(lon2 - lon1)
+    a = sin(dlat/2)**2 + cos(radians(lat1)) * cos(radians(lat2)) * sin(dlon/2)**2
+    c = 2 * asin(sqrt(a))
+    return R * c
+
 def get_coord_from_cep(cep):
+    """
+    Busca as coordenadas (latitude, longitude) e o bairro de um CEP
+    utilizando múltiplas APIs de forma resiliente.
+    """
     headers = {'User-Agent': 'CalculadoraDistancia/1.0 (Projeto Pessoal)'}
     apis_embaralhadas = random.sample(APIS, len(APIS))
 
@@ -42,119 +50,143 @@ def get_coord_from_cep(cep):
 
             if isinstance(data, list) and data:
                 r = data[0]
-                lat = r.get('lat')
-                lon = r.get('lon')
-                parts = r.get('display_name', '').split(','); bairro = parts[1].strip() if len(parts) > 2 else 'N/A'
+                lat, lon = r.get('lat'), r.get('lon')
+                parts = r.get('display_name', '').split(',')
+                bairro = parts[1].strip() if len(parts) > 2 else 'N/A'
             elif isinstance(data, dict):
                 if data.get('erro'): continue
                 lat = data.get('lat') or data.get('latitude')
                 lon = data.get('lng') or data.get('longitude')
                 bairro = data.get('bairro') or data.get('district') or data.get('neighborhood', 'N/A')
 
-            # --- VALIDAÇÃO MAIS RIGOROSA ---
-            # Só retorna se lat e lon forem encontrados e puderem ser convertidos para float
             if lat is not None and lon is not None:
                 return float(lat), float(lon), bairro
                 
         except Exception as e:
-            logging.error(f"Falha na API {url_final}. Erro: {e}")
-            time.sleep(0.5)
+            logging.error(f"Falha na API {url_final} para o CEP {cep}. Erro: {e}")
+            time.sleep(0.25)  # Pequeno delay antes de tentar a próxima API
             continue
             
     return None, None, None
 
 def _calcular_por_centroide_rapido(lat_partida, lon_partida, raiz_inicial, raiz_final):
-    resultados = []
-    total_raizes = (int(raiz_final) - int(raiz_inicial) + 1)
+    """Calcula a distância com base no centro geográfico de amostras de CEPs de uma raiz."""
+    resultados_finais = []
+    total_raizes = int(raiz_final) - int(raiz_inicial) + 1
     raizes_processadas = 0
 
     for raiz in range(int(raiz_inicial), int(raiz_final) + 1):
         raiz_str = str(raiz)
-        coordenadas_encontradas = []
-        
-        yield f"data: {json.dumps({'tipo': 'log', 'msg': f'Buscando amostras para a raiz {raiz_str} em paralelo...', 'progresso': (raizes_processadas / total_raizes) * 100})}\n\n"
+        raizes_processadas += 1
+        progresso = round((raizes_processadas / total_raizes) * 100, 2)
+        yield f"data: {json.dumps({'tipo': 'log', 'msg': f'Buscando amostras para a raiz {raiz_str}...', 'progresso': progresso})}\n\n"
         
         ceps_para_amostra = [f"{raiz_str}{str(i).zfill(3)}" for i in range(0, 1000, 100)]
+        coordenadas_encontradas = []
         
         with ThreadPoolExecutor(max_workers=10) as executor:
-            for resultado in executor.map(get_coord_from_cep, ceps_para_amostra):
-                # --- DUPLA CAMADA DE PROTEÇÃO ---
-                # Garante que o resultado e suas coordenadas não são nulos antes de usar
+            future_to_cep = {executor.submit(get_coord_from_cep, cep): cep for cep in ceps_para_amostra}
+            for future in as_completed(future_to_cep):
+                resultado = future.result()
                 if resultado and resultado[0] is not None and resultado[1] is not None:
-                    lat, lon, _ = resultado
-                    coordenadas_encontradas.append((lat, lon))
+                    coordenadas_encontradas.append((resultado[0], resultado[1]))
         
-        raizes_processadas += 1
-
         if coordenadas_encontradas:
             lat_media = fsum(c[0] for c in coordenadas_encontradas) / len(coordenadas_encontradas)
             lon_media = fsum(c[1] for c in coordenadas_encontradas) / len(coordenadas_encontradas)
             distancia = round(haversine(lat_partida, lon_partida, lat_media, lon_media), 2)
             log_msg = f"[OK] Raiz {raiz_str} → Centro geográfico encontrado. Distância: {distancia} km"
-            resultados.append({'raiz': raiz_str, 'bairro': f'Centro da Raiz ({len(coordenadas_encontradas)} amostras)', 'distancia': distancia, 'tempo': round(distancia * 2, 1), 'ceps_consultados': len(coordenadas_encontradas)})
+            resultados_finais.append({'raiz': raiz_str, 'bairro': f'Centro da Raiz ({len(coordenadas_encontradas)} amostras)', 'distancia': distancia, 'tempo': round(distancia * 1.5, 1), 'ceps_consultados': len(coordenadas_encontradas)})
         else:
             log_msg = f"[ERRO] Raiz {raiz_str} → Nenhuma amostra de CEP encontrada."
         
-        yield f"data: {json.dumps({'tipo': 'log', 'msg': log_msg, 'progresso': round((raizes_processadas / total_raizes) * 100, 2)})}\n\n"
-    
-    return resultados
-
-# ... (O resto do arquivo, incluindo _calcular_por_varredura_detalhada e calcular_distancias_stream, continua o mesmo) ...
-def _calcular_por_varredura_detalhada(lat_partida, lon_partida, raiz_inicial, raiz_final):
-    resultados_finais = []
-    total_raizes = (int(raiz_final) - int(raiz_inicial) + 1)
-    total_ceps_a_consultar = total_raizes * 300
-    ceps_processados = 0
-
-    for raiz in range(int(raiz_inicial), int(raiz_final) + 1):
-        raiz_str = str(raiz)
-        bairros_temp = {}
-        distancia_total_raiz, ceps_sucesso_raiz = 0, 0
-
-        for dezena_inicio in range(0, 1000, 10):
-            for i in range(3):
-                ceps_processados += 1
-                cep = f"{raiz_str}{str(dezena_inicio + i).zfill(3)}"
-                resultado_cep = get_coord_from_cep(cep)
-                
-                if resultado_cep:
-                    lat, lon, bairro = resultado_cep
-                    distancia = round(haversine(lat_partida, lon_partida, lat, lon), 2)
-                    log_msg = f"[OK] {cep} → Bairro: {bairro} | Distância: {distancia} km"
-                    distancia_total_raiz += distancia
-                    ceps_sucesso_raiz += 1
-                    if bairro not in bairros_temp: bairros_temp[bairro] = {'distancias': []}
-                    bairros_temp[bairro]['distancias'].append(distancia)
-                else:
-                    log_msg = f"[ERRO] {cep} → Localização não encontrada"
-                
-                yield f"data: {json.dumps({'tipo': 'log', 'msg': log_msg, 'progresso': round((ceps_processados / total_ceps_a_consultar) * 100, 2)})}\n\n"
-
-        if ceps_sucesso_raiz > 0:
-            media_geral = round(distancia_total_raiz / ceps_sucesso_raiz, 2)
-            resultados_finais.append({'tipo_linha': 'resumo_raiz', 'raiz': raiz_str, 'bairro': 'MÉDIA GERAL DA RAIZ', 'distancia': media_geral, 'tempo': round(media_geral * 2, 1), 'ceps_consultados': ceps_sucesso_raiz})
-
-        for bairro, info in bairros_temp.items():
-            media_bairro = round(sum(info['distancias']) / len(info['distancias']), 2)
-            resultados_finais.append({'tipo_linha': 'bairro', 'raiz': raiz_str, 'bairro': bairro, 'distancia': media_bairro, 'tempo': round(media_bairro * 2, 1), 'ceps_consultados': len(info['distancias'])})
+        yield f"data: {json.dumps({'tipo': 'log', 'msg': log_msg, 'progresso': progresso})}\n\n"
     
     return resultados_finais
 
+def _calcular_por_varredura_detalhada(lat_partida, lon_partida, raiz_inicial, raiz_final):
+    """
+    [REATORADO PARA ALTA PERFORMANCE]
+    Calcula a distância para múltiplas amostras de CEPs, agrupando por bairro.
+    Utiliza processamento concorrente para acelerar as consultas.
+    """
+    resultados_finais = []
+    total_raizes = int(raiz_final) - int(raiz_inicial) + 1
+    total_ceps_a_consultar = total_raizes * 300  # 3 amostras por dezena
+    ceps_processados = 0
+
+    for idx, raiz in enumerate(range(int(raiz_inicial), int(raiz_final) + 1)):
+        raiz_str = str(raiz)
+        yield f"data: {json.dumps({'tipo': 'log', 'msg': f'Iniciando varredura detalhada para a raiz {raiz_str}...', 'progresso': round((ceps_processados / total_ceps_a_consultar) * 100, 2)})}\n\n"
+
+        ceps_para_consultar = [f"{raiz_str}{str(dezena_inicio + i).zfill(3)}" for dezena_inicio in range(0, 1000, 10) for i in range(3)]
+        
+        resultados_da_raiz = []
+        with ThreadPoolExecutor(max_workers=20) as executor:
+            future_to_cep = {executor.submit(get_coord_from_cep, cep): cep for cep in ceps_para_consultar}
+
+            for future in as_completed(future_to_cep):
+                cep = future_to_cep[future]
+                resultado_cep = future.result()
+                ceps_processados += 1
+                progresso = round((ceps_processados / total_ceps_a_consultar) * 100, 2)
+
+                if resultado_cep and resultado_cep[0] is not None:
+                    lat, lon, bairro = resultado_cep
+                    distancia = round(haversine(lat_partida, lon_partida, lat, lon), 2)
+                    log_msg = f"[OK] {cep} → Bairro: {bairro} | Distância: {distancia} km"
+                    resultados_da_raiz.append({'bairro': bairro, 'distancia': distancia})
+                else:
+                    log_msg = f"[ERRO] {cep} → Localização não encontrada"
+                
+                yield f"data: {json.dumps({'tipo': 'log', 'msg': log_msg, 'progresso': progresso})}\n\n"
+
+        # --- Consolidação dos resultados da raiz ---
+        if resultados_da_raiz:
+            bairros_temp = {}
+            distancia_total_raiz = sum(r['distancia'] for r in resultados_da_raiz)
+            media_geral = round(distancia_total_raiz / len(resultados_da_raiz), 2)
+            
+            # Adiciona a linha de resumo da raiz
+            resultados_finais.append({'tipo_linha': 'resumo_raiz', 'raiz': raiz_str, 'bairro': 'MÉDIA GERAL DA RAIZ', 'distancia': media_geral, 'tempo': round(media_geral * 1.5, 1), 'ceps_consultados': len(resultados_da_raiz)})
+
+            # Agrupa por bairro para calcular médias específicas
+            for res in resultados_da_raiz:
+                bairro = res['bairro']
+                if bairro not in bairros_temp:
+                    bairros_temp[bairro] = {'distancias': []}
+                bairros_temp[bairro]['distancias'].append(res['distancia'])
+
+            # Adiciona as linhas de cada bairro
+            for bairro, info in sorted(bairros_temp.items()):
+                media_bairro = round(sum(info['distancias']) / len(info['distancias']), 2)
+                resultados_finais.append({'tipo_linha': 'bairro', 'raiz': raiz_str, 'bairro': bairro, 'distancia': media_bairro, 'tempo': round(media_bairro * 1.5, 1), 'ceps_consultados': len(info['distancias'])})
+        else:
+             yield f"data: {json.dumps({'tipo': 'log', 'msg': f'[AVISO] Nenhum CEP encontrado para a raiz {raiz_str}.', 'progresso': progresso})}\n\n"
+
+    return resultados_finais
+
 def calcular_distancias_stream(cep_partida_input, raiz_inicial_input, raiz_final_input, tipo_consulta):
+    """Função principal que orquestra o cálculo e gera o stream de eventos."""
     cep_partida = cep_partida_input.strip()
     raiz_inicial = raiz_inicial_input.strip()
     raiz_final = raiz_final_input.strip()
 
-    if len(cep_partida) != 8:
-        yield f"data: {json.dumps({'tipo': 'erro', 'msg': f'Erro: O CEP de Partida ({cep_partida}) deve ter exatamente 8 dígitos.'})}\n\n"; return
-    if len(raiz_inicial) != 5:
-        yield f"data: {json.dumps({'tipo': 'erro', 'msg': f'Erro: A Raiz Inicial ({raiz_inicial}) deve ter 5 dígitos.'})}\n\n"; return
-    if len(raiz_final) != 5:
-        yield f"data: {json.dumps({'tipo': 'erro', 'msg': f'Erro: A Raiz Final ({raiz_final}) deve ter 5 dígitos.'})}\n\n"; return
+    # --- VALIDAÇÃO DE ENTRADA ROBUSTA ---
+    if not cep_partida.isdigit() or len(cep_partida) != 8:
+        yield f"data: {json.dumps({'tipo': 'erro', 'msg': 'Erro: O CEP de Partida deve conter exatamente 8 dígitos numéricos.'})}\n\n"; return
+    if not raiz_inicial.isdigit() or len(raiz_inicial) != 5:
+        yield f"data: {json.dumps({'tipo': 'erro', 'msg': 'Erro: A Raiz Inicial deve conter exatamente 5 dígitos numéricos.'})}\n\n"; return
+    if not raiz_final.isdigit() or len(raiz_final) != 5:
+        yield f"data: {json.dumps({'tipo': 'erro', 'msg': 'Erro: A Raiz Final deve conter exatamente 5 dígitos numéricos.'})}\n\n"; return
+    if int(raiz_inicial) > int(raiz_final):
+        yield f"data: {json.dumps({'tipo': 'erro', 'msg': 'Erro: A Raiz Inicial não pode ser maior que a Raiz Final.'})}\n\n"; return
     
-    lat_partida, lon_partida, _ = get_coord_from_cep(cep_partida)
+    yield f"data: {json.dumps({'tipo': 'log', 'msg': f'Buscando coordenadas para o CEP de partida {cep_partida}...'})}\n\n"
+    lat_partida, lon_partida, bairro_partida = get_coord_from_cep(cep_partida)
     if not lat_partida or not lon_partida:
         yield f"data: {json.dumps({'tipo': 'erro', 'msg': f'Erro: CEP de partida {cep_partida} inválido ou não encontrado.'})}\n\n"; return
+    yield f"data: {json.dumps({'tipo': 'log', 'msg': f'Partida de {bairro_partida} ({cep_partida}) definida.'})}\n\n"
 
     resultados_finais = []
     try:
@@ -163,16 +195,20 @@ def calcular_distancias_stream(cep_partida_input, raiz_inicial_input, raiz_final
         else:
             gen = _calcular_por_varredura_detalhada(lat_partida, lon_partida, raiz_inicial, raiz_final)
         
-        while True:
-            yield next(gen)
+        # Consome o gerador para obter os logs e o progresso
+        yield from gen
+        # A StopIteration é capturada para obter o valor de retorno do gerador
     except StopIteration as e:
         resultados_finais = e.value
     
+    # Salva os resultados em um arquivo CSV
     os.makedirs("resultados", exist_ok=True)
-    with open("resultados/resultado.csv", "w", newline='', encoding="utf-8") as f:
+    caminho_csv = "resultados/resultado.csv"
+    with open(caminho_csv, "w", newline='', encoding="utf-8") as f:
         writer = csv.writer(f)
-        writer.writerow(["Raiz", "Bairro/Descrição", "Distância(km)", "Tempo(min)", "CEPs/Amostras"])
+        writer.writerow(["Raiz", "Bairro/Descricao", "Distancia_Media(km)", "Tempo_Estimado(min)", "CEPs_Amostras_Encontradas"])
         if resultados_finais:
             for r in resultados_finais:
                 writer.writerow([r.get('raiz'), r.get('bairro'), r.get('distancia'), r.get('tempo'), r.get('ceps_consultados')])
+
     yield f"data: {json.dumps({'tipo': 'fim', 'resultados': resultados_finais, 'download_link': '/baixar_csv'})}\n\n"
