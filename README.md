@@ -1,117 +1,152 @@
-# Painel de Distância por CEP
-
-Execute `app.py` e acesse via navegador para usar o painel.
-
-Documentação do Projeto: Calculadora de Distâncias por Raiz de CEP
+Painel de Distância por Raiz de CEP
 1. Visão Geral
-A "Calculadora de Distâncias por Raiz de CEP" é uma aplicação web desenvolvida em Python com o framework Flask. Seu objetivo principal é calcular a distância geodésica (Haversine) entre um CEP de partida e uma ou múltiplas "raízes" de CEP de destino (os 5 primeiros dígitos de um CEP).
+A Calculadora de Distâncias por Raiz de CEP é uma aplicação web desenvolvida em Python com o framework Flask. Seu objetivo é calcular a distância geodésica (usando a fórmula de Haversine) entre um CEP de partida e uma ou múltiplas "raízes" de CEP de destino (os 5 primeiros dígitos de um CEP).
 
-A ferramenta foi projetada para ser eficiente e informativa, fornecendo atualizações de progresso em tempo real para o usuário e oferecendo dois modos de consulta para diferentes necessidades de análise.
+A ferramenta foi projetada para lidar com tarefas longas e computacionalmente intensas de forma estável, especialmente em ambientes de nuvem como a Vercel. A arquitetura utiliza um modelo de orquestração pelo cliente, onde o navegador gerencia o fluxo de trabalho, solicitando ao servidor o processamento de uma raiz de CEP por vez. Isso garante que a aplicação não sofra com timeouts do servidor, fornecendo ao usuário atualizações de progresso em tempo real através de uma interface reativa.
 
 2. Principais Funcionalidades
 Cálculo de Distância em Dois Modos:
 
-Consulta Detalhada: Uma varredura otimizada que consulta os 3 primeiros CEPs de cada dezena dentro de uma raiz, agrupando os resultados por bairro e calculando a distância média para cada um.
+Consulta Detalhada: Uma varredura otimizada que consulta os 3 primeiros CEPs de cada dezena dentro de uma raiz (ex: 000, 001, 002; 010, 011, 012...). Os resultados são agrupados por bairro, com o cálculo da distância média para cada um, fornecendo um mapa detalhado da distribuição geográfica daquela raiz.
 
-Consulta Rápida: Um método de amostragem que calcula o centro geográfico (centroide) de uma raiz de CEP e retorna uma única distância média, tornando a consulta drasticamente mais rápida.
+Consulta Rápida: Um método de amostragem que calcula o centro geográfico (centroide) de uma raiz de CEP a partir de 10 amostras e retorna uma única distância média, ideal para análises rápidas.
 
-Interface Reativa: Utiliza Server-Sent Events (SSE) para enviar atualizações do progresso do backend para o frontend em tempo real, sem que a página precise ser recarregada. O usuário acompanha o processo através de uma barra de progresso e um log de execução detalhado.
+Arquitetura Resiliente a Timeouts: O frontend gerencia uma fila de raízes de CEP a serem processadas. Ele faz requisições sequenciais e curtas ao backend para cada raiz, evitando que a conexão seja interrompida por limites de tempo do servidor.
 
-Geração de Relatórios: Após a conclusão dos cálculos, a aplicação gera um arquivo .csv com os resultados consolidados, que pode ser baixado pelo usuário.
+Interface Reativa em Tempo Real: Utiliza Server-Sent Events (SSE) para enviar atualizações do progresso do backend para o frontend. O usuário acompanha o processo através de uma barra de progresso (que avança a cada raiz concluída) e um log de execução detalhado.
 
-Validação de Entradas: A interface e o backend validam as entradas do usuário para garantir que os CEPs e raízes estejam em um formato válido, prevenindo erros.
+Geração de Relatórios no Cliente: Após a conclusão dos cálculos, o usuário pode baixar um relatório completo em formato .csv. Este arquivo é gerado dinamicamente no navegador (client-side) a partir dos dados recebidos, uma abordagem moderna e compatível com qualquer plataforma de hospedagem.
 
-Consulta Robusta a APIs: Utiliza um sistema de rodízio entre múltiplas APIs de CEP para aumentar a resiliência e a taxa de sucesso na obtenção de coordenadas geográficas.
+Consulta Robusta a APIs: Para obter as coordenadas, a aplicação utiliza um sistema de embaralhamento e tentativa entre múltiplas APIs públicas de CEP, aumentando drasticamente a resiliência e a taxa de sucesso caso uma delas esteja fora do ar.
 
 3. Tecnologias Utilizadas
 Backend
 Linguagem: Python 3
 
-Framework Web: Flask (para criar o servidor, gerenciar rotas e renderizar a página)
+Framework Web: Flask
 
 Bibliotecas Python:
 
 requests: Para fazer as chamadas HTTP para as APIs de CEP externas.
 
-itertools: Usado para criar o ciclo de rodízio entre as APIs.
+concurrent.futures: Para realizar as consultas de CEP em paralelo, otimizando drasticamente o tempo de resposta.
+
+random: Para embaralhar a lista de APIs a cada consulta.
 
 Frontend
 Estrutura: HTML5
 
-Estilização: Tailwind CSS (para um design moderno e responsivo com baixo esforço)
+Estilização: Tailwind CSS (para um design moderno e responsivo)
 
-Interatividade: JavaScript (Vanilla, sem frameworks) para:
+Interatividade: JavaScript (Vanilla) para:
 
-Controlar o envio do formulário.
+Gerenciar o envio do formulário e a validação dos dados.
 
-Estabelecer e gerenciar a conexão de Server-Sent Events (EventSource).
+Orquestrar o fluxo de trabalho, criando uma fila de raízes e fazendo requisições sequenciais ao backend.
 
-Atualizar dinamicamente o DOM (a página) com o progresso, logs e resultados finais.
+Estabelecer e gerenciar conexões EventSource (SSE) para cada requisição.
+
+Atualizar dinamicamente o DOM com o progresso, logs e a tabela de resultados.
+
+Gerar e iniciar o download do arquivo .csv no navegador.
 
 APIs Externas Consultadas
-Para obter as coordenadas (latitude e longitude) a partir de um CEP, a aplicação consulta as seguintes APIs públicas em rodízio:
-
 ViaCEP: https://viacep.com.br/ws/{cep}/json/
 
 BrasilAPI: https://brasilapi.com.br/api/cep/v2/{cep}
 
-AwesomeAPI: https://cep.awesomeapi.com.br/json/{cep}
-
 OpenCEP: https://opencep.com/v1/{cep}
 
+AwesomeAPI: https://cep.awesomeapi.com.br/json/{cep}
+
+Nominatim (OpenStreetMap): https://nominatim.openstreetmap.org/search?postalcode={cep}&country=Brasil&format=json
+
 Plataforma de Deploy
-Vercel: Plataforma de nuvem otimizada para "Serverless Functions", onde o projeto está hospedado.
+Vercel: Plataforma de nuvem otimizada para "Serverless Functions", cujas limitações de tempo de execução inspiraram a arquitetura de orquestração pelo cliente.
 
 4. Como Funciona
-A arquitetura do projeto é dividida em três componentes principais:
+A arquitetura do projeto é dividida em três componentes principais que trabalham em harmonia:
 
-A. Frontend (templates/index.html)
-O usuário interage com um formulário onde insere o CEP de partida e o intervalo de raízes de destino. Ele também seleciona o tipo de consulta (Detalhada ou Rápida). Ao clicar em "Calcular", o JavaScript:
+A. Frontend (templates/index.html) - O Gerente
+O usuário preenche o formulário. Ao clicar em "Calcular", o JavaScript:
 
-Impede o envio tradicional do formulário.
+Cria uma fila de tarefas com todas as raízes de CEP a serem consultadas (ex: ['37410', '37411', '37412']).
 
-Coleta todos os dados, incluindo o tipo de consulta.
+Inicia uma função de processamento em loop, que pega a primeira raiz da fila.
 
-Inicia uma conexão EventSource com a rota /stream-calculo do backend, passando os dados como parâmetros na URL.
+Abre uma conexão EventSource com a rota /stream-calculo, enviando os dados para processar apenas aquela raiz.
 
-Fica "ouvindo" as mensagens enviadas pelo servidor. A cada mensagem recebida, o JavaScript atualiza a barra de progresso, adiciona uma linha ao log ou preenche a tabela de resultados.
+Ouve as mensagens do servidor (log, fim, erro) e atualiza a interface.
 
-B. Servidor Flask (app.py)
-É o coração que conecta o frontend à lógica de cálculo.
+Quando recebe a mensagem fim para a raiz atual, ele fecha a conexão, adiciona os resultados à tabela, e chama a si mesmo para processar a próxima raiz da fila.
 
-@app.route('/'): Renderiza a página principal index.html.
+O ciclo se repete até a fila ficar vazia.
 
-@app.route('/stream-calculo'): Esta é a rota mágica. Ela recebe os parâmetros do formulário, incluindo o tipo de consulta. Ela chama a função de cálculo correspondente e retorna um objeto Response com o mimetype='text/event-stream'. Isso mantém a conexão com o navegador aberta, permitindo que o backend envie atualizações contínuas.
+B. Servidor Flask (app.py) - O Trabalhador Focado
+É a ponte que executa tarefas específicas a pedido do frontend.
 
-@app.route('/baixar_csv'): Serve o arquivo de resultados para download.
+@app.route('/'): Renderiza a página principal.
 
-C. Lógica Principal (logic/calculadora.py)
-É o cérebro da aplicação, onde os cálculos pesados são feitos.
+@app.route('/stream-calculo'): Endpoint otimizado que recebe dados para processar uma única raiz de CEP. Ele chama a lógica de cálculo, mantém a conexão aberta para enviar logs de progresso (via yield), e envia um resultado final quando termina a tarefa daquela raiz.
 
-A função principal calcular_distancias_stream atua como um roteador. Baseado no tipo_consulta, ela chama uma de duas funções auxiliares.
+C. Lógica Principal (logic/calculadora.py) - O Cérebro
+Contém as funções que fazem o trabalho pesado.
 
-_calcular_por_varredura_detalhada: Executa a lógica de consultar os 3 primeiros CEPs de cada dezena, agrupa os resultados por bairro e calcula as médias.
+calcular_distancias_stream: Orquestra o cálculo para uma única raiz, chamando a função de consulta apropriada.
 
-_calcular_por_centroide_rapido: Executa a lógica de amostragem (ex: CEPs terminados em 000, 100, 200...), calcula o ponto geográfico central e retorna um único resultado por raiz.
+_calcular_por_varredura_detalhada e _calcular_por_centroide_rapido: Funções "geradoras" que executam as consultas em paralelo usando ThreadPoolExecutor e enviam (yield) atualizações de progresso.
 
-Ambas as funções são "geradores" (generators). Elas usam a palavra-chave yield para enviar dados de progresso de volta para o app.py assim que são gerados, permitindo o funcionamento em tempo real.
-
-A função get_coord_from_cep é a responsável por consultar as 4 APIs externas em rodízio, tratando falhas e garantindo a maior chance de sucesso.
+get_coord_from_cep: Consulta as 5 APIs externas de forma resiliente.
 
 5. Como Executar o Projeto Localmente
-Clone o Repositório: git clone git@github.com:WashintonMorais/alcular-Dist-ncias-por-Raiz-de-CEP.git
+1. Clone o Repositório:
 
-Navegue até a Pasta: cd alcular-Dist-ncias-por-Raiz-de-CEP
+Bash
 
-(Recomendado) Crie um Ambiente Virtual: python -m venv venv e ative-o.
+git clone https://github.com/WashintonMorais/Calcular-Distancias-Raiz-CEP.git
+2. Navegue até a Pasta:
 
-Instale as Dependências: pip install -r requirements.txt
+Bash
 
-Execute o Servidor Flask:
+cd Calcular-Distancias-Raiz-CEP
+3. (Recomendado) Crie e Ative um Ambiente Virtual:
+
+Bash
+
+# Criar
+python -m venv venv
+
+# Ativar no Windows (Git Bash)
+source venv/Scripts/activate
+
+# Ativar no macOS / Linux
+source venv/bin/activate
+4. Instale as Dependências:
+
+Bash
+
+pip install -r requirements.txt
+5. Execute o Servidor Flask (Escolha um método):
+
+Método 1 (Simples e Direto):
+
+Bash
+
+python app.py
+Método 2 (Oficial do Flask):
+
+No macOS/Linux:
 
 Bash
 
 export FLASK_APP=app.py
 export FLASK_DEBUG=1
 flask run
-Acesse http://127.0.0.1:5000 no seu navegador.
+No Windows (CMD):
+
+Bash
+
+set FLASK_APP=app.py
+set FLASK_DEBUG=1
+flask run
+6. Acesse http://127.0.0.1:5000 no seu navegador.
