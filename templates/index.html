@@ -17,13 +17,12 @@
                     <input name="raiz_inicial" placeholder="Raiz Inicial (5 dígitos)" required maxlength="5" class="border p-2 rounded w-full focus:ring-2 focus:ring-blue-500" />
                     <input name="raiz_final" placeholder="Raiz Final (5 dígitos)" required maxlength="5" class="border p-2 rounded w-full focus:ring-2 focus:ring-blue-500" />
                 </div>
-
                 <div>
                     <label class="block text-sm font-medium text-gray-700 mb-2">Tipo de Consulta</label>
                     <div class="flex flex-col sm:flex-row gap-4">
                         <div class="flex items-center">
                             <input id="tipo_detalhada" name="tipo_consulta" type="radio" value="detalhada" checked class="h-4 w-4 text-blue-600 border-gray-300 focus:ring-blue-500">
-                            <label for="tipo_detalhada" class="ml-3 block text-sm text-gray-900">Consulta Detalhada <span class="text-gray-500">(Lenta, por bairro)</span></label>
+                            <label for="tipo_detalhada" class="ml-3 block text-sm text-gray-900">Consulta Detalhada <span class="text-gray-500">(Por bairro)</span></label>
                         </div>
                         <div class="flex items-center">
                             <input id="tipo_rapida" name="tipo_consulta" type="radio" value="rapida" class="h-4 w-4 text-blue-600 border-gray-300 focus:ring-blue-500">
@@ -31,7 +30,6 @@
                         </div>
                     </div>
                 </div>
-                
                 <button id="submit-button" class="bg-blue-600 text-white px-6 py-2 rounded font-semibold hover:bg-blue-700 transition w-full sm:w-auto disabled:bg-gray-400" type="submit">
                     <span id="button-text">Calcular Distâncias</span>
                     <span id="button-spinner" class="hidden">Calculando...</span>
@@ -42,7 +40,13 @@
         <div id="status-container" class="space-y-8 hidden">
             <div class="bg-white p-6 rounded-lg shadow-md"><h2 class="text-xl font-semibold text-gray-700 mb-3">Progresso</h2><div class="w-full bg-gray-200 rounded-full h-2.5"><div id="progress-bar" class="bg-blue-500 h-2.5 rounded-full" style="width: 0%"></div></div><div id="progress-text" class="text-right text-sm text-gray-600 mt-1">0%</div></div>
             <div class="bg-white p-6 rounded-lg shadow-md"><h2 class="text-xl font-semibold text-gray-700 mb-3">Log de Execução</h2><pre id="log" class="bg-gray-800 text-white text-xs rounded p-4 h-64 overflow-y-scroll font-mono"></pre></div>
-            <div class="bg-white p-6 rounded-lg shadow-md"><div class="flex flex-col sm:flex-row justify-between sm:items-center mb-4"><h2 class="text-xl font-semibold text-gray-700">Resultados Consolidados</h2><a id="download-link" href="#" class="hidden mt-2 sm:mt-0 bg-green-600 text-white px-4 py-2 rounded font-semibold hover:bg-green-700 transition">Baixar Relatório (.CSV)</a></div><div class="overflow-x-auto"><table class="table-auto w-full border-collapse text-sm"><thead><tr class="bg-gray-200 text-left"><th class="border-b p-3">Raiz de CEP</th><th class="border-b p-3">Bairro / Descrição</th><th class="border-b p-3">Distância Média (km)</th><th class="border-b p-3">Tempo Estimado (min)</th><th class="border-b p-3">CEPs / Amostras</th></tr></thead><tbody id="resultados-body"><tr id="no-results-row"><td colspan="5" class="text-center p-8 text-gray-500">Nenhum resultado para exibir ainda.</td></tr></tbody></table></div></div>
+            <div class="bg-white p-6 rounded-lg shadow-md">
+                <div class="flex flex-col sm:flex-row justify-between sm:items-center mb-4">
+                    <h2 class="text-xl font-semibold text-gray-700">Resultados Consolidados</h2>
+                    <button id="download-button" class="hidden mt-2 sm:mt-0 bg-green-600 text-white px-4 py-2 rounded font-semibold hover:bg-green-700 transition">Baixar Relatório (.CSV)</button>
+                </div>
+                <div class="overflow-x-auto"><table class="table-auto w-full border-collapse text-sm"><thead><tr class="bg-gray-200 text-left"><th class="border-b p-3">Raiz de CEP</th><th class="border-b p-3">Bairro / Descrição</th><th class="border-b p-3">Distância Média (km)</th><th class="border-b p-3">Tempo Estimado (min)</th><th class="border-b p-3">CEPs / Amostras</th></tr></thead><tbody id="resultados-body"><tr id="no-results-row"><td colspan="5" class="text-center p-8 text-gray-500">Nenhum resultado para exibir ainda.</td></tr></tbody></table></div>
+            </div>
         </div>
     </div>
 
@@ -56,84 +60,105 @@
         const resultadosBody = document.getElementById('resultados-body');
         const progressBar = document.getElementById('progress-bar');
         const progressText = document.getElementById('progress-text');
-        const downloadLink = document.getElementById('download-link');
-        let eventSource;
+        const downloadButton = document.getElementById('download-button');
         
+        let eventSource;
+        let finalResults = [];
+
         function resetUI() { submitButton.disabled = false; buttonText.classList.remove('hidden'); buttonSpinner.classList.add('hidden'); }
+
+        function downloadCSV() {
+            if (finalResults.length === 0) { alert("Não há dados para baixar."); return; }
+            const headers = ["Raiz", "Bairro/Descricao", "Distancia_Media_km", "Tempo_Estimado_min", "CEPs_Amostras"];
+            const rows = finalResults.map(r => [
+                r.raiz,
+                `"${(r.bairro || '').replace(/"/g, '""')}"`,
+                r.distancia,
+                r.tempo,
+                r.ceps_consultados
+            ]);
+            let csvContent = headers.join(",") + "\n" + rows.map(e => e.join(",")).join("\n");
+            const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
+            const link = document.createElement("a");
+            if (link.download !== undefined) {
+                const url = URL.createObjectURL(blob);
+                link.setAttribute("href", url);
+                link.setAttribute("download", "distancias_calculadas.csv");
+                link.style.visibility = 'hidden';
+                document.body.appendChild(link);
+                link.click();
+                document.body.removeChild(link);
+            }
+        }
+
+        downloadButton.addEventListener('click', downloadCSV);
 
         calculoForm.addEventListener('submit', function(event) {
             event.preventDefault();
-
             if (eventSource) { eventSource.close(); }
-            
+            finalResults = [];
             const formData = new FormData(event.target);
-            const cepPartida = formData.get('cep_partida');
-            const raizInicial = formData.get('raiz_inicial');
-            const raizFinal = formData.get('raiz_final');
-            const numberRegex = /^\d+$/;
-
-            if (!numberRegex.test(cepPartida) || !numberRegex.test(raizInicial) || !numberRegex.test(raizFinal)) {
-                alert('Erro: Todos os campos devem conter apenas números.'); return;
-            }
-            if (parseInt(raizInicial) > parseInt(raizFinal)) {
+            if (parseInt(formData.get('raiz_inicial')) > parseInt(formData.get('raiz_final'))) {
                 alert('Erro: A Raiz Inicial não pode ser maior que a Raiz Final.'); return;
             }
-
             statusContainer.classList.remove('hidden');
             logElement.textContent = 'Iniciando conexão com o servidor...';
             resultadosBody.innerHTML = '<tr id="no-results-row"><td colspan="5" class="text-center p-8 text-gray-500">Aguardando resultados...</td></tr>';
             progressBar.style.width = '0%'; progressText.textContent = '0%';
-            downloadLink.classList.add('hidden');
+            downloadButton.classList.add('hidden');
             submitButton.disabled = true; buttonText.classList.add('hidden'); buttonSpinner.classList.remove('hidden');
-
             const params = new URLSearchParams(formData);
             eventSource = new EventSource(`/stream-calculo?${params.toString()}`);
             logElement.textContent += '\nConexão estabelecida. Aguardando dados...';
 
             eventSource.onmessage = function(e) {
                 const data = JSON.parse(e.data);
-                
                 if (data.progresso) {
-                    progressBar.style.width = data.progresso + '%';
-                    progressText.textContent = `${data.progresso}%`;
+                    const progressoPercent = Math.min(100, data.progresso.toFixed(2));
+                    progressBar.style.width = progressoPercent + '%';
+                    progressText.textContent = `${progressoPercent}%`;
                 }
-
                 if (data.tipo === 'log') {
                     logElement.textContent += '\n' + data.msg;
                     logElement.scrollTop = logElement.scrollHeight;
                 } 
                 else if (data.tipo === 'fim') {
-                    const noResultsRow = document.getElementById('no-results-row');
-                    if (noResultsRow) noResultsRow.remove();
-                    
                     logElement.textContent += '\n\n✅ Processo concluído!';
                     progressBar.style.width = '100%'; progressText.textContent = '100%';
+                    
+                    finalResults = data.resultados || [];
+                    const noResultsRow = document.getElementById('no-results-row');
 
-                    if (data.resultados && data.resultados.length > 0) {
-                        data.resultados.forEach(item => {
+                    if (finalResults.length > 0) {
+                        if (noResultsRow) { noResultsRow.remove(); } // Remove a mensagem "Aguardando..."
+                        
+                        finalResults.forEach(item => {
                             const row = document.createElement('tr');
                             row.className = item.tipo_linha === 'resumo_raiz' ? 'bg-blue-100 font-bold' : 'odd:bg-white even:bg-gray-50';
                             row.innerHTML = `<td class="border-b p-3">${item.raiz}</td><td class="border-b p-3">${item.bairro}</td><td class="border-b p-3">${item.distancia}</td><td class="border-b p-3">${item.tempo}</td><td class="border-b p-3">${item.ceps_consultados}</td>`;
                             resultadosBody.appendChild(row);
                         });
-                        downloadLink.href = data.download_link;
-                        downloadLink.classList.remove('hidden');
+                        downloadButton.classList.remove('hidden');
                     } else {
-                        resultadosBody.innerHTML = '<tr id="no-results-row"><td colspan="5" class="text-center p-8 text-gray-500">Nenhum resultado encontrado para os critérios informados.</td></tr>';
+                        // Se não houver resultados, atualiza a mensagem na tabela
+                        if (noResultsRow) {
+                             noResultsRow.querySelector('td').textContent = "Nenhum resultado encontrado para os critérios informados.";
+                        }
                     }
-
-                    resetUI(); eventSource.close();
+                    resetUI(); 
+                    eventSource.close();
                 }
                 else if (data.tipo === 'erro') {
                     logElement.textContent += `\n\n❌ ERRO: ${data.msg}`;
                     alert(`ERRO: ${data.msg}`);
-                    resetUI(); eventSource.close();
+                    resetUI();
+                    eventSource.close();
                 }
             };
-
             eventSource.onerror = function() {
                 logElement.textContent += '\n\n❌ Erro de conexão com o servidor. A conexão foi perdida.';
-                resetUI(); eventSource.close();
+                resetUI();
+                eventSource.close();
             };
         });
     </script>
