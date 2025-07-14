@@ -14,15 +14,19 @@ def index():
 def stream_calculo():
     cep_partida = request.args.get('cep_partida', '').strip()
     raiz_inicial = request.args.get('raiz_inicial', '').strip()
-    raiz_final = request.args.get('raiz_final', '').strip()
+    raiz_atual = request.args.get('raiz_atual', '').strip() 
     tipo_consulta = request.args.get('tipo_consulta', 'detalhada')
     
+    # Validações básicas
+    if not all([cep_partida, raiz_inicial, raiz_atual, tipo_consulta]):
+        return Response("data: {\"tipo\": \"erro\", \"msg\": \"Parâmetros ausentes.\"}\n\n", mimetype='text/event-stream')
+
     def generate():
         try:
-            yield from calcular_distancias_stream(cep_partida, raiz_inicial, raiz_final, tipo_consulta)
+            yield from calcular_distancias_stream(cep_partida, raiz_inicial, raiz_atual, tipo_consulta)
         except Exception as e:
-            app.logger.error(f"ERRO CRÍTICO NO STREAM: {e}", exc_info=True)
-            yield f"data: {json.dumps({'tipo': 'erro', 'msg': 'Erro inesperado no servidor.'})}\n\n"
+            app.logger.error(f"ERRO CRÍTICO NO STREAM para a raiz {raiz_atual}: {e}", exc_info=True)
+            yield f"data: {json.dumps({'tipo': 'erro', 'msg': f'Erro no servidor ao processar a raiz {raiz_atual}.'})}\n\n"
 
     return Response(generate(), mimetype='text/event-stream')
 

@@ -11,40 +11,12 @@
         <div class="bg-white p-6 rounded-lg shadow-md">
             <h1 class="text-2xl font-bold mb-4 text-gray-800">Calcular Distâncias por Raiz de CEP</h1>
             <form id="calculo-form" class="space-y-6">
-                <div class="grid grid-cols-1 sm:grid-cols-3 gap-4">
-                    <input name="cep_partida" placeholder="CEP de Partida (8 dígitos)" required maxlength="8" class="border p-2 rounded w-full focus:ring-2 focus:ring-blue-500" />
-                    <input name="raiz_inicial" placeholder="Raiz Inicial (5 dígitos)" required maxlength="5" class="border p-2 rounded w-full focus:ring-2 focus:ring-blue-500" />
-                    <input name="raiz_final" placeholder="Raiz Final (5 dígitos)" required maxlength="5" class="border p-2 rounded w-full focus:ring-2 focus:ring-blue-500" />
-                </div>
-                <div>
-                    <label class="block text-sm font-medium text-gray-700 mb-2">Tipo de Consulta</label>
-                    <div class="flex flex-col sm:flex-row gap-4">
-                        <div class="flex items-center">
-                            <input id="tipo_detalhada" name="tipo_consulta" type="radio" value="detalhada" checked class="h-4 w-4 text-blue-600 border-gray-300 focus:ring-blue-500">
-                            <label for="tipo_detalhada" class="ml-3 block text-sm text-gray-900">Consulta Detalhada <span class="text-gray-500">(Lenta, por bairro)</span></label>
-                        </div>
-                        <div class="flex items-center">
-                            <input id="tipo_rapida" name="tipo_consulta" type="radio" value="rapida" class="h-4 w-4 text-blue-600 border-gray-300 focus:ring-blue-500">
-                            <label for="tipo_rapida" class="ml-3 block text-sm text-gray-900">Consulta Rápida <span class="text-gray-500">(Centro da Raiz)</span></label>
-                        </div>
-                    </div>
-                </div>
-                <button id="submit-button" class="bg-blue-600 text-white px-6 py-2 rounded font-semibold hover:bg-blue-700 transition w-full sm:w-auto disabled:bg-gray-400" type="submit">
-                    <span id="button-text">Calcular Distâncias</span>
-                    <span id="button-spinner" class="hidden">Calculando...</span>
-                </button>
+                <div class="grid grid-cols-1 sm:grid-cols-3 gap-4"><input name="cep_partida" placeholder="CEP de Partida (8 dígitos)" required maxlength="8" class="border p-2 rounded w-full focus:ring-2 focus:ring-blue-500"><input name="raiz_inicial" placeholder="Raiz Inicial (5 dígitos)" required maxlength="5" class="border p-2 rounded w-full focus:ring-2 focus:ring-blue-500"><input name="raiz_final" placeholder="Raiz Final (5 dígitos)" required maxlength="5" class="border p-2 rounded w-full focus:ring-2 focus:ring-blue-500"></div><div><label class="block text-sm font-medium text-gray-700 mb-2">Tipo de Consulta</label><div class="flex flex-col sm:flex-row gap-4"><div class="flex items-center"><input id="tipo_detalhada" name="tipo_consulta" type="radio" value="detalhada" checked class="h-4 w-4 text-blue-600 border-gray-300 focus:ring-blue-500"><label for="tipo_detalhada" class="ml-3 block text-sm text-gray-900">Consulta Detalhada <span class="text-gray-500">(Lenta, por bairro)</span></label></div><div class="flex items-center"><input id="tipo_rapida" name="tipo_consulta" type="radio" value="rapida" class="h-4 w-4 text-blue-600 border-gray-300 focus:ring-blue-500"><label for="tipo_rapida" class="ml-3 block text-sm text-gray-900">Consulta Rápida <span class="text-gray-500">(Centro da Raiz)</span></label></div></div></div><button id="submit-button" class="bg-blue-600 text-white px-6 py-2 rounded font-semibold hover:bg-blue-700 transition w-full sm:w-auto disabled:bg-gray-400" type="submit"><span id="button-text">Calcular Distâncias</span><span id="button-spinner" class="hidden">Calculando...</span></button>
             </form>
         </div>
         <div id="status-container" class="space-y-8 hidden">
-            <div class="bg-white p-6 rounded-lg shadow-md"><h2 class="text-xl font-semibold text-gray-700 mb-3">Progresso</h2><div class="w-full bg-gray-200 rounded-full h-2.5"><div id="progress-bar" class="bg-blue-500 h-2.5 rounded-full" style="width: 0%"></div></div><div id="progress-text" class="text-right text-sm text-gray-600 mt-1">0%</div></div>
-            <div class="bg-white p-6 rounded-lg shadow-md"><h2 class="text-xl font-semibold text-gray-700 mb-3">Log de Execução</h2><pre id="log" class="bg-gray-800 text-white text-xs rounded p-4 h-64 overflow-y-scroll font-mono"></pre></div>
-            <div class="bg-white p-6 rounded-lg shadow-md">
-                <div class="flex flex-col sm:flex-row justify-between sm:items-center mb-4">
-                    <h2 class="text-xl font-semibold text-gray-700">Resultados Consolidados</h2>
-                    <button id="download-button" class="hidden mt-2 sm:mt-0 bg-green-600 text-white px-4 py-2 rounded font-semibold hover:bg-green-700 transition">Baixar Relatório (.CSV)</button>
-                </div>
-                <div class="overflow-x-auto"><table class="table-auto w-full border-collapse text-sm"><thead><tr class="bg-gray-200 text-left"><th class="border-b p-3">Raiz de CEP</th><th class="border-b p-3">Bairro / Descrição</th><th class="border-b p-3">Distância Média (km)</th><th class="border-b p-3">Tempo Estimado (min)</th><th class="border-b p-3">CEPs / Amostras</th></tr></thead><tbody id="resultados-body"></tbody></table></div>
-            </div>
+            <div class="bg-white p-6 rounded-lg shadow-md"><h2 class="text-xl font-semibold text-gray-700 mb-3">Progresso</h2><div class="w-full bg-gray-200 rounded-full h-2.5"><div id="progress-bar" class="bg-blue-500 h-2.5 rounded-full" style="width:0%"></div></div><div id="progress-text" class="text-right text-sm text-gray-600 mt-1">0%</div></div>
+            <div class="bg-white p-6 rounded-lg shadow-md"><h2 class="text-xl font-semibold text-gray-700 mb-3">Log de Execução</h2><pre id="log" class="bg-gray-800 text-white text-xs rounded p-4 h-64 overflow-y-scroll font-mono"></pre></div><div class="bg-white p-6 rounded-lg shadow-md"><div class="flex flex-col sm:flex-row justify-between sm:items-center mb-4"><h2 class="text-xl font-semibold text-gray-700">Resultados Consolidados</h2><button id="download-button" class="hidden mt-2 sm:mt-0 bg-green-600 text-white px-4 py-2 rounded font-semibold hover:bg-green-700 transition">Baixar Relatório (.CSV)</button></div><div class="overflow-x-auto"><table class="table-auto w-full border-collapse text-sm"><thead><tr class="bg-gray-200 text-left"><th class="border-b p-3">Raiz de CEP</th><th class="border-b p-3">Bairro / Descrição</th><th class="border-b p-3">Distância Média (km)</th><th class="border-b p-3">Tempo Estimado (min)</th><th class="border-b p-3">CEPs / Amostras</th></tr></thead><tbody id="resultados-body"></tbody></table></div></div>
         </div>
     </div>
 
@@ -62,18 +34,13 @@
         
         let eventSource;
         let finalResults = [];
+        let raizesParaProcessar = [];
+        let totalRaizes = 0;
+        let raizInicialGlobal = '';
 
-        function resetUI() {
-            submitButton.disabled = false;
-            buttonText.classList.remove('hidden');
-            buttonSpinner.classList.add('hidden');
-        }
-
+        function resetUI() { submitButton.disabled = false; buttonText.classList.remove('hidden'); buttonSpinner.classList.add('hidden'); }
         function downloadCSV() {
-            if (finalResults.length === 0) {
-                alert("Não há dados para exportar.");
-                return;
-            }
+            if (finalResults.length === 0) { alert("Não há dados para exportar."); return; }
             const headers = ["Raiz", "Bairro/Descricao", "Distancia_Media_km", "Tempo_Estimado_min", "CEPs_Amostras"];
             const rows = finalResults.map(r => [r.raiz, `"${(r.bairro || '').replace(/"/g, '""')}"`, r.distancia, r.tempo, r.ceps_consultados]);
             const csvContent = "data:text/csv;charset=utf-8," + headers.join(",") + "\n" + rows.map(e => e.join(",")).join("\n");
@@ -84,75 +51,94 @@
             link.click();
             document.body.removeChild(link);
         }
-
         downloadButton.addEventListener('click', downloadCSV);
 
-        calculoForm.addEventListener('submit', function(event) {
-            event.preventDefault();
-            if (eventSource) eventSource.close();
+        function processarProximaRaiz() {
+            if (raizesParaProcessar.length === 0) {
+                logElement.textContent += '\n\n✅ Processo concluído!';
+                if (finalResults.length > 0) downloadButton.classList.remove('hidden');
+                resetUI();
+                return;
+            }
 
-            // Resetar o estado da UI para uma nova busca
-            statusContainer.classList.remove('hidden');
-            logElement.textContent = 'Iniciando conexão com o servidor...';
-            resultadosBody.innerHTML = ''; // Limpa a tabela de resultados
-            downloadButton.classList.add('hidden');
-            finalResults = [];
-            
-            // Adiciona a mensagem inicial de "aguardando"
-            resultadosBody.innerHTML = '<tr><td colspan="5" class="text-center p-8 text-gray-500">Aguardando resultados...</td></tr>';
-            
-            submitButton.disabled = true;
-            buttonText.classList.add('hidden');
-            buttonSpinner.classList.remove('hidden');
+            const raizAtual = raizesParaProcessar.shift();
+            const formData = new FormData(calculoForm);
+            const params = new URLSearchParams();
+            params.append('cep_partida', formData.get('cep_partida'));
+            params.append('raiz_inicial', raizInicialGlobal); // Envia a raiz inicial original
+            params.append('raiz_atual', raizAtual);
+            params.append('tipo_consulta', formData.get('tipo_consulta'));
 
-            const params = new URLSearchParams(new FormData(calculoForm));
             eventSource = new EventSource(`/stream-calculo?${params.toString()}`);
 
             eventSource.onmessage = function(e) {
                 const data = JSON.parse(e.data);
-
                 if (data.tipo === 'log') {
                     logElement.textContent += '\n' + data.msg;
                     logElement.scrollTop = logElement.scrollHeight;
-                    if (data.progresso) {
-                        const progresso = Math.min(100, data.progresso.toFixed(2));
-                        progressBar.style.width = progresso + '%';
-                        progressText.textContent = `${progresso}%`;
-                    }
                 } else if (data.tipo === 'fim') {
-                    logElement.textContent += '\n\n✅ Processo concluído!';
-                    progressBar.style.width = '100%';
-                    progressText.textContent = '100%';
-                    
-                    finalResults = data.resultados || [];
-                    resultadosBody.innerHTML = ''; // Limpa a tabela antes de popular
-
-                    if (finalResults.length > 0) {
-                        finalResults.forEach(item => {
+                    eventSource.close();
+                    const resultadosDaRaiz = data.resultados || [];
+                    if (resultadosDaRaiz.length > 0) {
+                        finalResults.push(...resultadosDaRaiz);
+                        resultadosDaRaiz.forEach(item => {
                             const row = document.createElement('tr');
-                            row.className = item.tipo_linha === 'resumo_raiz' ? 'bg-blue-100 font-bold' : 'odd:bg-white even:bg-gray-50';
+                            if (item.tipo_linha === 'erro_raiz') { row.className = 'bg-red-100 text-red-800 font-semibold'; }
+                            else if (item.tipo_linha === 'resumo_raiz') { row.className = 'bg-blue-100 font-bold'; }
+                            else { row.className = 'odd:bg-white even:bg-gray-50'; }
                             row.innerHTML = `<td class="border-b p-3">${item.raiz}</td><td class="border-b p-3">${item.bairro}</td><td class="border-b p-3">${item.distancia}</td><td class="border-b p-3">${item.tempo}</td><td class="border-b p-3">${item.ceps_consultados}</td>`;
                             resultadosBody.appendChild(row);
                         });
-                        downloadButton.classList.remove('hidden');
-                    } else {
-                        resultadosBody.innerHTML = '<tr><td colspan="5" class="text-center p-8 text-gray-500">Nenhum resultado encontrado para os critérios informados.</td></tr>';
                     }
-
-                    resetUI();
-                    eventSource.close();
+                    const raizesProcessadas = totalRaizes - raizesParaProcessar.length;
+                    const progresso = (raizesProcessadas / totalRaizes) * 100;
+                    progressBar.style.width = progresso + '%';
+                    progressText.textContent = `${progresso.toFixed(0)}%`;
+                    processarProximaRaiz();
                 } else if (data.tipo === 'erro') {
                     logElement.textContent += `\n\n❌ ERRO: ${data.msg}`;
-                    resetUI();
                     eventSource.close();
+                    resetUI();
                 }
             };
-
             eventSource.onerror = function() {
-                logElement.textContent += '\n\n❌ Erro de conexão com o servidor.';
+                logElement.textContent += `\n\n❌ Erro de conexão com o servidor ao processar a raiz ${raizAtual}. O processo pode ter sido interrompido.`;
                 resetUI();
                 eventSource.close();
             };
+        }
+
+        calculoForm.addEventListener('submit', function(event) {
+            event.preventDefault();
+            if (eventSource) eventSource.close();
+            
+            const formData = new FormData(calculoForm);
+            const raizInicialNum = parseInt(formData.get('raiz_inicial'));
+            const raizFinalNum = parseInt(formData.get('raiz_final'));
+
+            if (isNaN(raizInicialNum) || isNaN(raizFinalNum) || raizInicialNum > raizFinalNum) {
+                alert('Erro: Raízes inválidas ou a raiz inicial é maior que a final.');
+                return;
+            }
+            raizInicialGlobal = formData.get('raiz_inicial');
+
+            statusContainer.classList.remove('hidden');
+            logElement.textContent = 'Iniciando processo...';
+            resultadosBody.innerHTML = '';
+            downloadButton.classList.add('hidden');
+            finalResults = [];
+            submitButton.disabled = true; buttonText.classList.add('hidden'); buttonSpinner.classList.remove('hidden');
+
+            raizesParaProcessar = [];
+            for (let i = raizInicialNum; i <= raizFinalNum; i++) {
+                raizesParaProcessar.push(i.toString().padStart(5, '0'));
+            }
+            totalRaizes = raizesParaProcessar.length;
+            if(totalRaizes > 0) {
+                 resultadosBody.innerHTML = '<tr><td colspan="5" class="text-center p-8 text-gray-500">Processando...</td></tr>';
+            }
+            
+            processarProximaRaiz();
         });
     </script>
 </body>
