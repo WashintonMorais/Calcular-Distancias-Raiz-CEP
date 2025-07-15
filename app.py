@@ -17,9 +17,8 @@ def stream_calculo():
     raiz_atual = request.args.get('raiz_atual', '').strip() 
     tipo_consulta = request.args.get('tipo_consulta', 'detalhada')
     
-    # Validações básicas
     if not all([cep_partida, raiz_inicial, raiz_atual, tipo_consulta]):
-        return Response("data: {\"tipo\": \"erro\", \"msg\": \"Parâmetros ausentes.\"}\n\n", mimetype='text/event-stream')
+        return Response("data: {\"tipo\": \"erro\", \"msg\": \"Parâmetros ausentes na requisição.\"}\n\n", mimetype='text/event-stream')
 
     def generate():
         try:
