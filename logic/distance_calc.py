@@ -15,7 +15,7 @@ def _calcular_por_varredura_detalhada(lat_partida, lon_partida, raiz_str):
     """
     yield f"data: {json.dumps({'tipo':'log','msg':f'Iniciando varredura de alta precisão para a raiz {raiz_str}...'})}\n\n"
     
-    # Mantemos a amostragem espaçada, que se provou eficaz
+    # Usando a amostragem espaçada que se provou eficaz
     ceps_para_consultar = [f"{raiz_str}{d+i:03d}" for d in range(0, 1000, 10) for i in [0, 1, 4, 7]]
     total_ceps = len(ceps_para_consultar)
     resultados_brutos = []
@@ -29,7 +29,6 @@ def _calcular_por_varredura_detalhada(lat_partida, lon_partida, raiz_str):
             
             if res_c and res_c[0] is not None:
                 lat, lon, bairro = res_c
-                # A distância calculada aqui é preliminar e individual de cada ponto
                 dist = round(haversine(lat_partida, lon_partida, lat, lon), 2)
                 resultados_brutos.append({'cep': cep_c, 'bairro': bairro, 'distancia': dist, 'lat': lat, 'lon': lon})
             
@@ -48,9 +47,6 @@ def _calcular_por_varredura_detalhada(lat_partida, lon_partida, raiz_str):
         for bairro, pontos in bairros_temp.items():
             if not pontos: continue
 
-            # --- INÍCIO DA NOVA LÓGICA DO "PONTO MAIS CENTRAL" ---
-            
-            # 1. Filtro simples para remover outliers grosseiros dentro do bairro
             pontos_confiaveis = pontos
             if len(pontos) > 2:
                 lat_centro_preliminar = statistics.mean(p['lat'] for p in pontos)
@@ -59,14 +55,13 @@ def _calcular_por_varredura_detalhada(lat_partida, lon_partida, raiz_str):
                 if not pontos_confiaveis:
                     pontos_confiaveis = pontos
 
-            # 2. Calcula o centro geográfico (centroide) dos pontos confiáveis
+            if not pontos_confiaveis: continue
+
             lat_centro_bairro = statistics.mean(p['lat'] for p in pontos_confiaveis)
             lon_centro_bairro = statistics.mean(p['lon'] for p in pontos_confiaveis)
             
-            # 3. Encontra o ponto real que está mais próximo deste centro (o "Ponto Mais Central")
             ponto_referencia = min(pontos_confiaveis, key=lambda p: haversine(p['lat'], p['lon'], lat_centro_bairro, lon_centro_bairro))
             
-            # 4. A distância final é calculada do ponto de partida ATÉ ESTE ponto de referência
             distancia_final = round(haversine(lat_partida, lon_partida, ponto_referencia['lat'], ponto_referencia['lon']), 2)
 
             resultados_finais.append({
@@ -75,7 +70,6 @@ def _calcular_por_varredura_detalhada(lat_partida, lon_partida, raiz_str):
                 'ceps_consultados': len(pontos_confiaveis), 'lat': ponto_referencia['lat'],
                 'lon': ponto_referencia['lon'], 'cep_referencia': ponto_referencia['cep']
             })
-            # --- FIM DA NOVA LÓGICA ---
 
         if resultados_finais:
             media_geral = round(statistics.mean(r['distancia'] for r in resultados_brutos), 2)
@@ -98,21 +92,43 @@ def _calcular_por_varredura_detalhada(lat_partida, lon_partida, raiz_str):
     ))
 
 def _calcular_por_centroide_rapido(lat_partida, lon_partida, raiz_str):
-    """Cálculo rápido por centroide. (Esta função permanece 100% original)."""
+    """Cálculo rápido por centroide."""
     yield f"data: {json.dumps({'tipo':'log', 'msg':f'Iniciando consulta rápida para a raiz {raiz_str}...'})}\n\n"
+    
     ceps_para_amostra = [f"{raiz_str}{i:03d}" for i in range(0, 1000, 100)]
     coordenadas = []
+    
     with ThreadPoolExecutor(max_workers=10) as executor:
         for i, resultado in enumerate(executor.map(get_info_from_cep, ceps_para_amostra)):
             if resultado and resultado[0] is not None:
                 coordenadas.append((resultado[0], resultado[1]))
             if (i+1) % 2 == 0:
                 yield f"data: {json.dumps({'tipo': 'log', 'msg': f'Processadas {i+1}/{len(ceps_para_amostra)} amostras...'})}\n\n"
+    
     if coordenadas:
-        lat_media = sum(c[0] for c in coordenadas) / len(coordenadas)
-        lon_media = sum(c[1] for c in coordenadas) / len(coordenadas)
+        lat_media = statistics.mean(c[0] for c in coordenadas)
+        lon_media = statistics.mean(c[1] for c in coordenadas)
         distancia = round(haversine(lat_partida, lon_partida, lat_media, lon_media), 2)
-        resultado_final = [{'tipo_linha': 'bairro', 'raiz': raiz_str, 'bairro': f'Centro da Raiz ({len(coordenadas)} amostras)', 'distancia': distancia, 'tempo': round(distancia * 2, 1), 'ceps_consultados': len(coordenadas), 'lat': lat_media, 'lon': lon_media, 'cep_referencia': 'N/A'}]
+        
+        # --- ALTERAÇÃO AQUI: Ajuste no texto do 'bairro' para incluir a raiz ---
+        descricao_bairro = f"Centro da Raiz {raiz_str} ({len(coordenadas)} amostras)"
+        
+        resultado_final = [{
+            'tipo_linha': 'bairro', 
+            'raiz': raiz_str,
+            'bairro': descricao_bairro, # Usando a nova descrição
+            'distancia': distancia, 
+            'tempo': round(distancia * 2, 1), 
+            'ceps_consultados': len(coordenadas), 
+            'lat': lat_media, 
+            'lon': lon_media, 
+            'cep_referencia': 'N/A'
+        }]
     else:
-        resultado_final = [{'tipo_linha': 'erro_raiz', 'raiz': raiz_str, 'bairro': 'NENHUMA AMOSTRA ENCONTRADA', 'distancia': '-', 'tempo': '-', 'ceps_consultados': 0, 'lat': None, 'lon': None, 'cep_referencia': None}]
+        resultado_final = [{
+            'tipo_linha': 'erro_raiz', 'raiz': raiz_str, 'bairro': 'NENHUMA AMOSTRA ENCONTRADA',
+            'distancia': '-', 'tempo': '-', 'ceps_consultados': 0,
+            'lat': None, 'lon': None, 'cep_referencia': None
+        }]
+    
     return resultado_final
