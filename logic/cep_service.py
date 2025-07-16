@@ -1,94 +1,109 @@
 # logic/cep_service.py
-
 import requests
-import random
-from logic.geocoding import get_precise_coord, reverse_geocode_and_validate
-from logic.logger import get_logger
+import statistics
+from concurrent.futures import ThreadPoolExecutor, as_completed
+from .geocoding import get_precise_coord # Reutilizamos esta função
+from .logger import get_logger
 
 logger = get_logger(__name__)
-
-APIS_ENDERECO = [
-    "https://brasilapi.com.br/api/cep/v2/{cep}",
-    "https://viacep.com.br/ws/{cep}/json/"
-]
-
-APIS_COMPLETA = [
-    "https://viacep.com.br/ws/{cep}/json/",
-    "https://brasilapi.com.br/api/cep/v2/{cep}",
-    "https://nominatim.openstreetmap.org/search?postalcode={cep}&country=Brasil&format=json",
-    "https://opencep.com/v1/{cep}",
-    "https://cep.awesomeapi.com.br/json/{cep}"
-]
-
 HEADERS = {'User-Agent': 'CalculadoraDistancia/1.0 (Projeto Pessoal)'}
 
-def get_coord_fallback(cep):
-    logger.info(f"Executando fallback para {cep}")
-    for api in random.sample(APIS_COMPLETA, len(APIS_COMPLETA)):
-        try:
-            url = api.format(cep=cep.replace('-', ''))
-            res = requests.get(url, headers=HEADERS, timeout=10)
-            res.raise_for_status()
-            data = res.json()
+# --- Funções Especialistas para cada API ---
 
-            if isinstance(data, list) and data:
-                r = data[0]
-                return float(r['lat']), float(r['lon']), r.get('display_name', 'N/A').split(',')[1].strip()
-            elif isinstance(data, dict):
-                if data.get('erro'):
-                    continue
-                lat = data.get('lat') or data.get('latitude') or (data.get('location') and data['location']['coordinates'].get('latitude'))
-                lon = data.get('lng') or data.get('longitude') or (data.get('location') and data['location']['coordinates'].get('longitude'))
-                bairro = data.get('bairro') or data.get('district') or data.get('neighborhood', 'N/A')
-                if lat and lon:
-                    return float(lat), float(lon), bairro
-        except Exception as e:
-            logger.warning(f"Erro no fallback {api}: {e}")
-            continue
-    logger.error(f"Falha completa no fallback para {cep}")
-    return None, None, None
+def _query_address_api(url_template, cep):
+    """Tenta obter dados de endereço de uma API."""
+    try:
+        res = requests.get(url_template.format(cep=cep), headers=HEADERS, timeout=3)
+        if res.status_code == 200:
+            data = res.json()
+            if not data.get('erro') and data.get('bairro'):
+                return {'bairro': data.get('bairro'), 'localidade': data.get('localidade'), 'uf': data.get('uf')}
+    except requests.RequestException:
+        return None
+    return None
+
+def _query_coords_api(url_template, cep):
+    """Tenta obter coordenadas de uma API."""
+    try:
+        res = requests.get(url_template.format(cep=cep), headers=HEADERS, timeout=3)
+        if res.status_code == 200:
+            data = res.json()
+            lat, lon = None, None
+            # Lógica para BrasilAPI
+            if 'location' in data and data['location']['coordinates']:
+                lat = data['location']['coordinates'].get('latitude')
+                lon = data['location']['coordinates'].get('longitude')
+            # Lógica para AwesomeAPI
+            elif 'lat' in data and 'lng' in data:
+                lat = data.get('lat')
+                lon = data.get('lng')
+            
+            if lat and lon:
+                return {'lat': float(lat), 'lon': float(lon)}
+    except requests.RequestException:
+        return None
+    return None
+
+def _average_coords(coord_list):
+    """Calcula a média de uma lista de coordenadas."""
+    if not coord_list: return None
+    avg_lat = statistics.mean([c['lat'] for c in coord_list])
+    avg_lon = statistics.mean([c['lon'] for c in coord_list])
+    return {'lat': avg_lat, 'lon': avg_lon}
+
+# --- Função Principal Orquestradora ---
 
 def get_info_from_cep(cep):
-    logger.info(f"Consultando informações do CEP {cep}")
-    endereco_info = {}
-    fallback_coords = None
-
-    for api in APIS_ENDERECO:
-        try:
-            url = api.format(cep=cep.replace('-', ''))
-            res = requests.get(url, headers=HEADERS, timeout=5)
-            res.raise_for_status()
-            data = res.json()
-
-            if not data.get('erro'):
-                endereco_info = {
-                    'logradouro': data.get('logradouro') or data.get('street'),
-                    'bairro': data.get('bairro') or data.get('neighborhood'),
-                    'localidade': data.get('localidade') or data.get('city'),
-                    'uf': data.get('uf') or data.get('state')
-                }
-                if data.get('location') and data['location'].get('coordinates'):
-                    coords = data['location']['coordinates']
-                    fallback_coords = (float(coords['latitude']), float(coords['longitude']))
-                elif data.get('lat') or data.get('latitude'):
-                    fallback_coords = (float(data.get('lat') or data.get('latitude')), float(data.get('lng') or data.get('longitude')))
-            if endereco_info and fallback_coords:
+    """
+    Orquestra a busca de CEP usando um funil de enriquecimento de dados
+    com múltiplas fontes em paralelo para velocidade e robustez.
+    """
+    cep_limpo = cep.replace('-', '')
+    
+    # ETAPA 1: Obter endereço base em paralelo
+    address_apis = {
+        "https://opencep.com/v1/{cep}": "OpenCEP",
+        "https://viacep.com.br/ws/{cep}/json/": "ViaCEP"
+    }
+    endereco_base = None
+    with ThreadPoolExecutor(max_workers=len(address_apis)) as executor:
+        futures = [executor.submit(_query_address_api, url, cep_limpo) for url in address_apis]
+        for future in as_completed(futures):
+            result = future.result()
+            if result:
+                endereco_base = result
+                executor.shutdown(wait=False, cancel_futures=True) # Encontrou, cancela os outros
                 break
-        except Exception as e:
-            logger.warning(f"Erro na API {api}: {e}")
-            continue
+    
+    if not endereco_base:
+        logger.error(f"Não foi possível obter endereço base para o CEP {cep_limpo}.")
+        return None, None, None
 
-    if not endereco_info.get('localidade'):
-        return get_coord_fallback(cep)
+    # ETAPA 2: Obter coordenadas em paralelo
+    coords_apis = {
+        "https://brasilapi.com.br/api/cep/v2/{cep}": "BrasilAPI",
+        "https://cep.awesomeapi.com.br/json/{cep}": "AwesomeAPI"
+    }
+    coordenadas_encontradas = []
+    with ThreadPoolExecutor(max_workers=len(coords_apis)) as executor:
+        futures = [executor.submit(_query_coords_api, url, cep_limpo) for url in coords_apis]
+        for future in as_completed(futures):
+            result = future.result()
+            if result:
+                coordenadas_encontradas.append(result)
+    
+    coordenadas_finais = _average_coords(coordenadas_encontradas)
+    
+    # Se a Etapa 2 funcionou, combina os resultados e retorna
+    if coordenadas_finais:
+        logger.info(f"CEP {cep_limpo}: Coordenadas encontradas e calculada a média de {len(coordenadas_encontradas)} fontes.")
+        return coordenadas_finais['lat'], coordenadas_finais['lon'], endereco_base['bairro']
 
-    lat_precisa, lon_precisa = get_precise_coord(cep, endereco_info)
-    bairro_final = endereco_info.get('bairro') or 'N/A'
+    # ETAPA 3: Fallback de geocodificação se a Etapa 2 falhar
+    logger.warning(f"CEP {cep_limpo}: Nenhuma coordenada encontrada nas APIs diretas. Usando fallback de geocodificação.")
+    lat, lon = get_precise_coord(cep, endereco_base)
+    if lat and lon:
+        return lat, lon, endereco_base['bairro']
 
-    if lat_precisa and lon_precisa:
-        if reverse_geocode_and_validate(lat_precisa, lon_precisa, endereco_info.get('bairro'), endereco_info.get('localidade')):
-            return lat_precisa, lon_precisa, bairro_final
-
-    if fallback_coords:
-        return fallback_coords[0], fallback_coords[1], bairro_final
-
-    return get_coord_fallback(cep)
+    logger.error(f"Falha completa em obter coordenadas para o CEP {cep_limpo}.")
+    return None, None, None
